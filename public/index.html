@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Đối soát file | AFC &amp; đối tác</title>
+  <title>Đối soát giao dịch | AFC &amp; đối tác</title>
   <style>
     :root {
       --page: #f4f1ea;
@@ -400,12 +400,12 @@
       <div class="notice">
         <span class="notice-icon" aria-hidden="true">i</span>
         <div>
-          <strong>Yêu cầu kết nối API.</strong> Máy chủ NestJS tại địa chỉ bên dưới phải đang chạy và có thể truy cập được.
+          <strong>API đã được cấu hình.</strong> Khi triển khai trên Vercel, biểu mẫu sẽ gọi endpoint cùng tên miền.
         </div>
       </div>
 
       <form id="reconciliationForm"
-            action="http://localhost:3000/reconciliation/readfile"
+            action="/reconciliation/readfile"
             method="post"
             enctype="multipart/form-data"
             novalidate>
@@ -463,7 +463,7 @@
           <div class="field">
             <label class="field-label" for="endpoint">Địa chỉ API <span class="required" aria-hidden="true">*</span></label>
             <input id="endpoint" type="text"
-                   value="http://localhost:3000/reconciliation/readfile"
+                   value="/reconciliation/readfile"
                    autocomplete="off"
                    spellcheck="false"
                    required
