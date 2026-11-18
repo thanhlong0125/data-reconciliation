@@ -12,7 +12,7 @@ async function createServer(): Promise<Express> {
     return server;
   }
 
-  const expressApp = require('express')();
+  const expressApp: Express = require('express')();
   const app = await NestFactory.create(
     AppModule,
     new ExpressAdapter(expressApp),
@@ -21,7 +21,7 @@ async function createServer(): Promise<Express> {
   await app.init();
 
   server = expressApp;
-  return server;
+  return expressApp;
 }
 
 export default async function handler(
