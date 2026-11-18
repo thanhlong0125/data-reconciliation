@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Đối soát file | AFC &amp; đối tác</title>
+  <style>
+    :root {
+      --page: #f4f1ea;
+      --surface: #fff;
+      --navy: #162a43;
+      --navy-soft: #506179;
+      --teal: #087f72;
+      --teal-dark: #08695f;
+      --teal-pale: #edf7f5;
+      --border: #d9dfE5;
+      --border-dark: #bdc7d1;
+      --error: #b42318;
+      --error-pale: #fff1ef;
+      --success: #18794e;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--navy);
+      background:
+        linear-gradient(135deg, rgba(8, 127, 114, 0.035) 25%, transparent 25%) 0 0 / 28px 28px,
+        var(--page);
+    }
+
+    .shell {
+      width: min(760px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 54px 0;
+    }
+
+    .masthead {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 22px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 10px;
+      color: white;
+      background: var(--navy);
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      box-shadow: 0 5px 14px rgba(22, 42, 67, 0.14);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(26px, 4vw, 36px);
+      line-height: 1.08;
+      letter-spacing: -0.035em;
+    }
+
+    .eyebrow {
+      margin: 0 0 7px;
+      color: var(--teal-dark);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .privacy {
+      flex: 0 0 auto;
+      margin-bottom: 3px;
+      color: var(--navy-soft);
+      font-size: 13px;
+      text-align: right;
+    }
+
+    .form-panel {
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface);
+      box-shadow: 0 16px 44px rgba(22, 42, 67, 0.08);
+    }
+
+    .notice {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 14px 18px;
+      border-bottom: 1px solid #d7ebe7;
+      background: var(--teal-pale);
+      color: #31584f;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .notice-icon {
+      flex: 0 0 auto;
+      width: 20px;
+      height: 20px;
+      display: grid;
+      place-items: center;
+      border: 1.5px solid var(--teal);
+      border-radius: 50%;
+      color: var(--teal);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    form { padding: 24px; }
+
+    .steps {
+      display: grid;
+      grid-template-columns: 1fr 24px 1fr;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .step {
+      min-width: 0;
+    }
+
+    .step-heading {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .step-number {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      flex: 0 0 auto;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--navy);
+      color: white;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .step-title {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.25;
+    }
+
+    .step-connector {
+      width: 24px;
+      height: 2px;
+      background: var(--border-dark);
+      position: relative;
+    }
+
+    .step-connector::after {
+      content: "";
+      position: absolute;
+      right: -1px;
+      top: -3px;
+      width: 7px;
+      height: 7px;
+      border-top: 2px solid var(--border-dark);
+      border-right: 2px solid var(--border-dark);
+      transform: rotate(45deg);
+    }
+
+    .file-label {
+      display: block;
+    }
+
+    .file-label input[type="file"] {
+      width: 100%;
+      min-height: 72px;
+      border: 1.5px dashed var(--border-dark);
+      border-radius: 10px;
+      background: #fbfcfc;
+      color: var(--navy-soft);
+      font: inherit;
+      cursor: pointer;
+      transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+    }
+
+    .file-label input[type="file"]:hover {
+      border-color: var(--teal);
+      background: #f7fbfa;
+    }
+
+    .file-label input[type="file"]:focus-visible {
+      outline: 3px solid rgba(8, 127, 114, 0.16);
+      outline-offset: 2px;
+      border-color: var(--teal);
+    }
+
+    .file-label input[type="file"]::file-selector-button {
+      height: 70px;
+      margin-right: 12px;
+      border: 0;
+      border-right: 1px solid var(--border);
+      padding: 0 15px;
+      background: #eef2f5;
+      color: var(--navy);
+      font: inherit;
+      font-weight: 750;
+      cursor: pointer;
+    }
+
+    .divider {
+      height: 1px;
+      margin: 4px 0 20px;
+      background: var(--border);
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .field { min-width: 0; }
+
+    label.field-label {
+      display: block;
+      margin-bottom: 7px;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .required { color: var(--error); }
+
+    input[type="text"],
+    select {
+      width: 100%;
+      height: 46px;
+      border: 1.5px solid var(--border-dark);
+      border-radius: 8px;
+      background: white;
+      color: var(--navy);
+      padding: 0 12px;
+      font: inherit;
+      font-size: 14px;
+      transition: border-color 160ms ease, box-shadow 160ms ease;
+    }
+
+    select {
+      padding-right: 38px;
+      cursor: pointer;
+    }
+
+    input[type="text"]:focus,
+    select:focus {
+      outline: none;
+      border-color: var(--teal);
+      box-shadow: 0 0 0 3px rgba(8, 127, 114, 0.12);
+    }
+
+    .hint {
+      margin: 6px 0 0;
+      color: var(--navy-soft);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .error-box {
+      display: none;
+      margin-top: 18px;
+      border: 1px solid #f0bbb5;
+      border-left: 4px solid var(--error);
+      border-radius: 8px;
+      padding: 11px 12px;
+      background: var(--error-pale);
+      color: #7a271a;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .error-box.visible { display: block; }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-top: 22px;
+    }
+
+    .constraints {
+      color: var(--navy-soft);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .submit-button {
+      min-width: 190px;
+      height: 48px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--teal);
+      color: white;
+      padding: 0 20px;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 8px 18px rgba(8, 127, 114, 0.18);
+      transition: background 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+    }
+
+    .submit-button:hover {
+      background: var(--teal-dark);
+      transform: translateY(-1px);
+      box-shadow: 0 10px 22px rgba(8, 127, 114, 0.22);
+    }
+
+    .submit-button:active { transform: translateY(0); }
+
+    .submit-button:focus-visible {
+      outline: 3px solid rgba(8, 127, 114, 0.24);
+      outline-offset: 3px;
+    }
+
+    @media (max-width: 640px) {
+      .shell {
+        width: min(100% - 24px, 760px);
+        padding: 28px 0;
+      }
+
+      .masthead {
+        align-items: flex-start;
+      }
+
+      .privacy { display: none; }
+
+      form { padding: 18px; }
+
+      .steps {
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+
+      .step-connector {
+        width: 2px;
+        height: 14px;
+        margin-left: 14px;
+      }
+
+      .step-connector::after {
+        right: -3px;
+        top: 8px;
+        transform: rotate(135deg);
+      }
+
+      .field-grid { grid-template-columns: 1fr; }
+
+      .actions {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .submit-button {
+        width: 100%;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="masthead">
+      <div>
+        <p class="eyebrow">Công cụ nội bộ</p>
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">DS</div>
+          <h1>Đối soát giao dịch</h1>
+        </div>
+      </div>
+      <p class="privacy">AFC / Đối tác</p>
+    </header>
+
+    <section class="form-panel" aria-label="Biểu mẫu tải file đối soát">
+      <div class="notice">
+        <span class="notice-icon" aria-hidden="true">i</span>
+        <div>
+          <strong>Yêu cầu kết nối API.</strong> Máy chủ NestJS tại địa chỉ bên dưới phải đang chạy và có thể truy cập được.
+        </div>
+      </div>
+
+      <form id="reconciliationForm"
+            action="http://localhost:3000/reconciliation/readfile"
+            method="post"
+            enctype="multipart/form-data"
+            novalidate>
+        <div class="steps">
+          <div class="step">
+            <div class="step-heading">
+              <span class="step-number">1</span>
+              <h2 class="step-title">File đối tác</h2>
+            </div>
+            <label class="file-label">
+              <span class="sr-only" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">Chọn file Excel đối tác</span>
+              <input id="partnerFile" name="partnerFile" type="file"
+                     accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                     required>
+            </label>
+          </div>
+
+          <div class="step-connector" aria-hidden="true"></div>
+
+          <div class="step">
+            <div class="step-heading">
+              <span class="step-number">2</span>
+              <h2 class="step-title">File AFC</h2>
+            </div>
+            <label class="file-label">
+              <span class="sr-only" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">Chọn file Excel AFC</span>
+              <input id="afcFile" name="afcFile" type="file"
+                     accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                     required>
+            </label>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="field-grid">
+          <div class="field">
+            <label class="field-label" for="code">Mã đối soát <span class="required" aria-hidden="true">*</span></label>
+            <select id="code" name="code" required>
+              <option value="">Chọn kênh thanh toán</option>
+              <option value="1">1 — App · Thẻ quốc tế (MPGS)</option>
+              <option value="2">2 — App · TKTT Sacombank</option>
+              <option value="3">3 — App · Momo</option>
+              <option value="4">4 — App · Zalopay</option>
+              <option value="5">5 — Tap&amp;go · ZaloPay</option>
+              <option value="6">6 — Tap&amp;go · Momo</option>
+              <option value="7">7 — Kiosk · TTT</option>
+              <option value="8">8 — Kiosk · ZaloPay</option>
+              <option value="9">9 — App · ShopeePay</option>
+              <option value="10">10 — Tap&amp;go · ShopeePay</option>
+              <option value="11">11 — Kiosk · ShopeePay</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="endpoint">Địa chỉ API <span class="required" aria-hidden="true">*</span></label>
+            <input id="endpoint" type="text"
+                   value="http://localhost:3000/reconciliation/readfile"
+                   autocomplete="off"
+                   spellcheck="false"
+                   required
+                   aria-describedby="endpointHint">
+            <p class="hint" id="endpointHint">Có thể thay đổi nếu API chạy ở máy chủ khác.</p>
+          </div>
+        </div>
+
+        <div id="errorBox" class="error-box" role="alert" aria-live="polite"></div>
+
+        <div class="actions">
+          <div class="constraints">
+            Chỉ nhận file <strong>.xlsx</strong><br>
+            Mỗi file tối đa <strong>20 MB</strong>
+          </div>
+          <button class="submit-button" type="submit">Tạo file đối soát</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      const form = document.getElementById('reconciliationForm');
+      const endpoint = document.getElementById('endpoint');
+      const code = document.getElementById('code');
+      const errorBox = document.getElementById('errorBox');
+      const partnerFile = document.getElementById('partnerFile');
+      const afcFile = document.getElementById('afcFile');
+      const MAX_SIZE = 20 * 1024 * 1024;
+
+      function showError(message) {
+        errorBox.textContent = message;
+        errorBox.classList.add('visible');
+      }
+
+      function clearError() {
+        errorBox.textContent = '';
+        errorBox.classList.remove('visible');
+      }
+
+      function validateFile(input, label) {
+        if (!input.files || input.files.length !== 1) {
+          return `Vui lòng chọn ${label}.`;
+        }
+
+        const file = input.files[0];
+        if (!/\.xlsx$/i.test(file.name)) {
+          return `${label} phải có định dạng .xlsx.`;
+        }
+
+        if (file.size > MAX_SIZE) {
+          return `${label} vượt quá giới hạn 20 MB.`;
+        }
+
+        return '';
+      }
+
+      [partnerFile, afcFile].forEach((input) => {
+        input.addEventListener('change', clearError);
+      });
+
+      endpoint.addEventListener('input', () => {
+        const value = endpoint.value.trim();
+        if (value) form.action = value;
+        clearError();
+      });
+
+      form.addEventListener('submit', (event) => {
+        clearError();
+
+        const partnerError = validateFile(partnerFile, 'file đối tác');
+        if (partnerError) {
+          event.preventDefault();
+          showError(partnerError);
+          partnerFile.focus();
+          return;
+        }
+
+        const afcError = validateFile(afcFile, 'file AFC');
+        if (afcError) {
+          event.preventDefault();
+          showError(afcError);
+          afcFile.focus();
+          return;
+        }
+
+        if (!code.value) {
+          event.preventDefault();
+          showError('Vui lòng chọn mã đối soát.');
+          code.focus();
+          return;
+        }
+
+        const endpointValue = endpoint.value.trim();
+        if (!endpointValue) {
+          event.preventDefault();
+          showError('Vui lòng nhập địa chỉ API.');
+          endpoint.focus();
+          return;
+        }
+
+        try {
+          const url = new URL(endpointValue, window.location.href);
+          if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error();
+          form.action = url.href;
+        } catch (_) {
+          event.preventDefault();
+          showError('Địa chỉ API không hợp lệ. Hãy nhập URL bắt đầu bằng http:// hoặc https://.');
+          endpoint.focus();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
