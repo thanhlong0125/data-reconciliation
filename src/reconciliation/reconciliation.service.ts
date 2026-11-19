@@ -35,17 +35,28 @@ const CODE = [
 
 const ENGLISH_MONTH_NUMBERS: Record<string, string> = {
   jan: '01',
+  january: '01',
   feb: '02',
+  february: '02',
   mar: '03',
+  march: '03',
   apr: '04',
+  april: '04',
   may: '05',
   jun: '06',
+  june: '06',
   jul: '07',
+  july: '07',
   aug: '08',
+  august: '08',
   sep: '09',
+  september: '09',
   oct: '10',
+  october: '10',
   nov: '11',
+  november: '11',
   dec: '12',
+  december: '12',
 };
 
 interface DataRow {
@@ -146,107 +157,168 @@ export class ReconciliationService {
 
   private toCalendarDate(value: ExcelJS.CellValue): string | undefined {
     if (value instanceof Date) {
-      return this.toUtcDate(value);
+      return Number.isNaN(value.getTime())
+        ? undefined
+        : value.toISOString().slice(0, 10);
     }
 
+    let text: string;
     if (typeof value === 'number') {
-      if (Number.isInteger(value) && value >= 10000101 && value <= 99991231) {
-        return this.parseYyyyMMdd(String(value));
-      }
-
-      if (value > 0) {
+      if (
+        Number.isInteger(value) &&
+        value >= 10000101 &&
+        value <= 99991231
+      ) {
+        text = String(value);
+      } else if (value > 0) {
         const excelDate = new Date(
           Date.UTC(1899, 11, 30) + Math.floor(value) * 86400000,
         );
         return Number.isNaN(excelDate.getTime())
           ? undefined
           : excelDate.toISOString().slice(0, 10);
+      } else {
+        return undefined;
       }
+    } else if (typeof value === 'string') {
+      text = value.trim();
+    } else {
       return undefined;
     }
 
-    if (typeof value !== 'string') {
-      return undefined;
-    }
-
-    const text = value.trim();
-    if (/^\d{8}$/.test(text)) {
-      return this.parseYyyyMMdd(text);
-    }
-    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-      return this.parseIsoDate(text);
-    }
-    if (/^\d{4}-\d{2}-\d{2}T/.test(text)) {
-      const timestamp = /(?:Z|[+-]\d{2}:\d{2})$/i.test(text)
-        ? text
-        : `${text}Z`;
-      const date = new Date(timestamp);
-      return Number.isNaN(date.getTime()) ? undefined : this.toUtcDate(date);
-    }
-
-    return this.parseEnglishDateTime(text);
-  }
-
-  private parseEnglishDateTime(value: string): string | undefined {
-    const match =
-      /^(\d{1,2})\s+([a-z]{3})\s+(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/i.exec(
-        value,
+    let year: string;
+    let month: string;
+    let day: string;
+    let hourText: string | undefined;
+    let minuteText: string | undefined;
+    let secondText: string | undefined;
+    let millisecondText: string | undefined;
+    let meridiem: string | undefined;
+    let timezone: string | undefined;
+    const compactDate = /^(\d{4})(\d{2})(\d{2})$/.exec(text);
+    const numericDateTime =
+      /^(\d{1,4})[./-](\d{1,2})[./-](\d{1,4})(?:[ T,]+(\d{1,2}):(\d{2})(?::(\d{2})(?:[.,](\d{1,3}))?)?\s*(AM|PM)?\s*(Z|[+-]\d{2}:?\d{2})?)?$/i.exec(
+        text,
       );
-    if (!match) {
-      return undefined;
+    if (compactDate) {
+      [, year, month, day] = compactDate;
+    } else if (numericDateTime) {
+      const [
+        ,
+        first,
+        secondPart,
+        third,
+        parsedHour,
+        parsedMinute,
+        parsedSecond,
+        parsedMillisecond,
+        parsedMeridiem,
+        parsedTimezone,
+      ] = numericDateTime;
+      if (first.length === 4) {
+        [year, month, day] = [first, secondPart, third];
+      } else if (third.length === 4) {
+        year = third;
+        if (Number(first) > 12) {
+          [day, month] = [first, secondPart];
+        } else if (Number(secondPart) > 12) {
+          [month, day] = [first, secondPart];
+        } else {
+          [day, month] = [first, secondPart];
+        }
+      } else {
+        return undefined;
+      }
+      hourText = parsedHour;
+      minuteText = parsedMinute;
+      secondText = parsedSecond;
+      millisecondText = parsedMillisecond;
+      meridiem = parsedMeridiem;
+      timezone = parsedTimezone;
+    } else {
+      const dayFirst =
+        /^(\d{1,2})\s+([a-z]+)\s+(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/i.exec(
+          text,
+        );
+      const monthFirst =
+        /^([a-z]+)\s+(\d{1,2}),?\s+(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/i.exec(
+          text,
+        );
+      if (dayFirst) {
+        [, day, month, year, hourText, minuteText, secondText] = dayFirst;
+      } else if (monthFirst) {
+        [, month, day, year, hourText, minuteText, secondText] = monthFirst;
+      } else {
+        return undefined;
+      }
+      month = ENGLISH_MONTH_NUMBERS[month.toLowerCase()];
+      if (!month) {
+        return undefined;
+      }
     }
 
-    const [, day, monthAbbreviation, year, hour, minute, second] = match;
-    const month = ENGLISH_MONTH_NUMBERS[monthAbbreviation.toLowerCase()];
-    if (!month) {
-      return undefined;
-    }
+    const numericYear = Number(year);
+    const numericMonth = Number(month);
+    const numericDay = Number(day);
+    const calendarDate = new Date(0);
+    calendarDate.setUTCHours(0, 0, 0, 0);
+    calendarDate.setUTCFullYear(
+      numericYear,
+      numericMonth - 1,
+      numericDay,
+    );
     if (
-      hour !== undefined &&
-      (Number(hour) > 23 ||
-        Number(minute) > 59 ||
-        (second !== undefined && Number(second) > 59))
+      calendarDate.getUTCFullYear() !== numericYear ||
+      calendarDate.getUTCMonth() !== numericMonth - 1 ||
+      calendarDate.getUTCDate() !== numericDay
     ) {
       return undefined;
     }
 
-    return this.parseIsoDate(
-      `${year}-${month}-${day.padStart(2, '0')}`,
+    const dateText = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    if (hourText === undefined) {
+      return dateText;
+    }
+
+    let hour = Number(hourText);
+    const minute = Number(minuteText);
+    const second = Number(secondText ?? 0);
+    if (!Number.isInteger(minute)) {
+      return undefined;
+    }
+    if (meridiem) {
+      if (hour < 1 || hour > 12) {
+        return undefined;
+      }
+      hour = (hour % 12) + (meridiem.toUpperCase() === 'PM' ? 12 : 0);
+    } else if (hour > 23) {
+      return undefined;
+    }
+    if (minute > 59 || second > 59) {
+      return undefined;
+    }
+    if (!timezone) {
+      return dateText;
+    }
+
+    const normalizedTimezone =
+      timezone.toUpperCase() === 'Z'
+        ? 'Z'
+        : timezone.includes(':')
+          ? timezone
+          : `${timezone.slice(0, 3)}:${timezone.slice(3)}`;
+    if (normalizedTimezone !== 'Z') {
+      const offset = /^([+-])(\d{2}):(\d{2})$/.exec(normalizedTimezone);
+      if (!offset || Number(offset[2]) > 23 || Number(offset[3]) > 59) {
+        return undefined;
+      }
+    }
+    const timestamp = new Date(
+      `${dateText}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}.${(millisecondText ?? '0').padEnd(3, '0')}${normalizedTimezone}`,
     );
-  }
-
-  private parseYyyyMMdd(value: string): string | undefined {
-    return this.parseIsoDate(
-      `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`,
-    );
-  }
-
-  private parseIsoDate(value: string): string | undefined {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-    if (!match) {
-      return undefined;
-    }
-
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-    const date = new Date(Date.UTC(year, month - 1, day));
-    if (
-      date.getUTCFullYear() !== year ||
-      date.getUTCMonth() !== month - 1 ||
-      date.getUTCDate() !== day
-    ) {
-      return undefined;
-    }
-
-    return value;
-  }
-
-  private toUtcDate(date: Date): string | undefined {
-    if (Number.isNaN(date.getTime())) {
-      return undefined;
-    }
-    return date.toISOString().slice(0, 10);
+    return Number.isNaN(timestamp.getTime())
+      ? undefined
+      : timestamp.toISOString().slice(0, 10);
   }
 
   private indexByKey(
