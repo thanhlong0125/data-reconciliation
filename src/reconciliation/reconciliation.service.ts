@@ -378,13 +378,13 @@ export class ReconciliationService {
     );
   }
   private async kioskZaloPay(afcFile: UploadedExcelFile, partnerFile: UploadedExcelFile, dateRange: DateRange) {
-    const partnerSelectedCol = ['Mã GD Zalopay', 'Số tiền giao dịch (VNĐ)', 'Ngày giao dịch','Trạng thái GD']
+    const partnerSelectedCol = ['Mã GD Zalopay', 'Số tiền thanh toán trước phí', 'Ngày giao dịch']
     const partnerKey = 'Mã GD Zalopay';
-    const partnerPrice = 'Số tiền giao dịch (VNĐ)';
+    const partnerPrice = 'Số tiền thanh toán trước phí';
     const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
 
-    const afcSelectedCol = ['paymentNo', 'totalAmount', 'date_created']
-    const afcKey = 'paymentNo';
+    const afcSelectedCol = ['id', 'totalAmount', 'date_created']
+    const afcKey = 'id';
     const afcPrice = 'totalAmount';
     const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
     const partnerWithoutFailedTransactions = {
@@ -706,8 +706,6 @@ export class ReconciliationService {
       'Partner dư',
     ]);
   }
-
-
 
   private async Refunds(
     workbook: ExcelJS.Workbook,
