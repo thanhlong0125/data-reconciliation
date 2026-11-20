@@ -20,17 +20,19 @@ const PARTNER_SELECTED_COLUMNS = [
   'Số tiền',
 ];
 const CODE = [
-  // { code: 1, name: 'App - Thẻ quốc thế (MPGS)', partnerKey: 'Mã đơn hàng gốc', afcKey: 'Mã đối soát' },
-  // { code: 2, name: 'App - TKTT Sacombank', partnerKey: 'Mã đơn hàng gốc', afcKey: 'Mã đối soát' },
-  // { code: 3, name: 'App - Momo', partnerKey: 'Mã đơn hàng gốc', afcKey: 'Mã đối soát' },
-  // { code: 4, name: 'App - Zalopay', partnerKey: 'Mã đơn hàng gốc', afcKey: 'Mã đối soát' },
-  // { code: 5, name: 'App - ShopeePay', partnerKey: 'Mã đơn hàng gốc', afcKey: 'Mã đối soát' },
-  // { code: 6, name: 'Tap&go - ZaloPay', partnerKey: 'Mã đơn hàng gốc', afcKey: 'Mã đối soát' },
-  // { code: 7, name: 'Tap&go - Momo', partnerKey: 'Mã đơn hàng gốc', afcKey: 'Mã đối soát' },
-  // { code: 8, name: 'Tap&go - ShopeePay', partnerKey: 'Mã đơn hàng gốc', afcKey: 'Mã đối soát' },
-  { code: 9, name: 'Kiosk - TTT', partnerKey: 'Mã đơn hàng gốc', afcKey: 'Mã đối soát' },
-  { code: 10, name: 'Kiosk - ZaloPay', partnerKey: 'Mã đơn hàng gốc', afcKey: 'Mã đối soát' },
-  { code: 11, name: 'Kiosk - ShopeePay', partnerKey: 'Mã đơn hàng gốc', afcKey: 'Mã đối soát' },
+  // { code: 1, name: 'App - Thẻ quốc thế (MPGS)'},
+  // { code: 2, name: 'App - TKTT Sacombank' },
+  // { code: 3, name: 'App - Momo' },
+  // { code: 4, name: 'App - Zalopay' },
+  // { code: 5, name: 'App - ShopeePay' },
+  // { code: 6, name: 'Tap&go - ZaloPay' },
+  // { code: 7, name: 'Tap&go - Momo' },
+  // { code: 8, name: 'Tap&go - ShopeePay' },
+  { code: 9, name: 'Kiosk - TTT' },
+  { code: 10, name: 'Kiosk - ZaloPay' },
+  { code: 11, name: 'Kiosk - ShopeePay' },
+  { code: 12, name: 'Kiosk - Momo' },
+  { code: 13, name: 'Kiosk - Techcombank' },
 ]
 
 const ENGLISH_MONTH_NUMBERS: Record<string, string> = {
@@ -114,6 +116,7 @@ export class ReconciliationService {
       case 1:
       case 2:
       case 3:
+        return this.appMomo(afcFile, partnerFile, dateRange);
       case 4:
       case 5:
       case 6:
@@ -125,6 +128,10 @@ export class ReconciliationService {
         return this.kioskZaloPay(afcFile, partnerFile, dateRange);
       case 11:
         return this.kioskShopeePay(afcFile, partnerFile, dateRange);
+      case 12:
+        return this.kioskMomo(afcFile, partnerFile, dateRange);
+      case 13:
+        return this.kioskTechcombank(afcFile, partnerFile, dateRange);
     }
   }
   private filterByDateRange(
@@ -339,7 +346,170 @@ export class ReconciliationService {
 
     return { rowsByKey };
   }
-// done
+//========================================APP========================================
+  private async appMomo(
+    afcFile: UploadedExcelFile,
+    partnerFile: UploadedExcelFile,
+    dateRange: DateRange
+  ) {
+    const partnerSelectedCol = ['Mã đơn hàng gốc', 'Số tiền', 'Thời gian']
+    const partnerKey = 'Mã đơn hàng gốc';
+    const partnerPrice = 'Số tiền';
+    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
+
+    const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
+    const afcKey = 'Mã đối soát';
+    const afcPrice = 'Giá bán';
+    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
+
+    return this.recociliation(
+      this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
+      this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
+    );
+  }
+  private async appMPGS(
+    afcFile: UploadedExcelFile,
+    partnerFile: UploadedExcelFile,
+    dateRange: DateRange
+  ) {
+    const partnerSelectedCol = ['Mã đơn hàng gốc', 'Số tiền', 'Thời gian']
+    const partnerKey = 'Mã đơn hàng gốc';
+    const partnerPrice = 'Số tiền';
+    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
+
+    const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
+    const afcKey = 'Mã đối soát';
+    const afcPrice = 'Giá bán';
+    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
+
+    return this.recociliation(
+      this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
+      this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
+    );
+  }
+  private async appSacombank(
+    afcFile: UploadedExcelFile,
+    partnerFile: UploadedExcelFile,
+    dateRange: DateRange
+  ) {
+    const partnerSelectedCol = ['Mã đơn hàng gốc', 'Số tiền', 'Thời gian']
+    const partnerKey = 'Mã đơn hàng gốc';
+    const partnerPrice = 'Số tiền';
+    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
+
+    const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
+    const afcKey = 'Mã đối soát';
+    const afcPrice = 'Giá bán';
+    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
+
+    return this.recociliation(
+      this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
+      this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
+    );
+  }
+  private async appZalopay(
+    afcFile: UploadedExcelFile,
+    partnerFile: UploadedExcelFile,
+    dateRange: DateRange
+  ) {
+    const partnerSelectedCol = ['Mã đơn hàng gốc', 'Số tiền', 'Thời gian']
+    const partnerKey = 'Mã đơn hàng gốc';
+    const partnerPrice = 'Số tiền';
+    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
+
+    const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
+    const afcKey = 'Mã đối soát';
+    const afcPrice = 'Giá bán';
+    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
+
+    return this.recociliation(
+      this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
+      this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
+    );
+  }
+  private async ShopeePay(
+    afcFile: UploadedExcelFile,
+    partnerFile: UploadedExcelFile,
+    dateRange: DateRange
+  ) {
+    const partnerSelectedCol = ['Mã đơn hàng gốc', 'Số tiền', 'Thời gian']
+    const partnerKey = 'Mã đơn hàng gốc';
+    const partnerPrice = 'Số tiền';
+    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
+
+    const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
+    const afcKey = 'Mã đối soát';
+    const afcPrice = 'Giá bán';
+    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
+
+    return this.recociliation(
+      this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
+      this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
+    );
+  }
+//========================================TAP&GO========================================
+  private async tapAndGoZaloPay(
+    afcFile: UploadedExcelFile,
+    partnerFile: UploadedExcelFile,
+    dateRange: DateRange
+  ) {
+    const partnerSelectedCol = ['Mã đơn hàng gốc', 'Số tiền', 'Thời gian']
+    const partnerKey = 'Mã đơn hàng gốc';
+    const partnerPrice = 'Số tiền';
+    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
+
+    const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
+    const afcKey = 'Mã đối soát';
+    const afcPrice = 'Giá bán';
+    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
+
+    return this.recociliation(
+      this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
+      this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
+    );
+  }
+  private async tapAndGoMomo(
+    afcFile: UploadedExcelFile,
+    partnerFile: UploadedExcelFile,
+    dateRange: DateRange
+  ) {
+    const partnerSelectedCol = ['Mã đơn hàng gốc', 'Số tiền', 'Thời gian']
+    const partnerKey = 'Mã đơn hàng gốc';
+    const partnerPrice = 'Số tiền';
+    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
+
+    const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
+    const afcKey = 'Mã đối soát';
+    const afcPrice = 'Giá bán';
+    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
+
+    return this.recociliation(
+      this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
+      this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
+    );
+  }
+  private async tapAndGoShopeePay(
+    afcFile: UploadedExcelFile,
+    partnerFile: UploadedExcelFile,
+    dateRange: DateRange
+  ) {
+    const partnerSelectedCol = ['Mã đơn hàng gốc', 'Số tiền', 'Thời gian']
+    const partnerKey = 'Mã đơn hàng gốc';
+    const partnerPrice = 'Số tiền';
+    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
+
+    const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
+    const afcKey = 'Mã đối soát';
+    const afcPrice = 'Giá bán';
+    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
+
+    return this.recociliation(
+      this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
+      this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
+    );
+  }
+
+//========================================KIOSK========================================
   private async kioskTTT(
     afcFile: UploadedExcelFile,
     partnerFile: UploadedExcelFile,
@@ -360,6 +530,7 @@ export class ReconciliationService {
       this.filterByDateRange(afc, 2, 'date_created', dateRange, 'afcFile'),
     );
   }
+  
   private async kioskShopeePay(afcFile: UploadedExcelFile, partnerFile: UploadedExcelFile, dateRange: DateRange) {
     const partnerSelectedCol = ['Mã tham chiếu', 'Giá trị giao dịch', 'Thời gian tạo']
     const partnerKey = 'Mã tham chiếu';
@@ -377,6 +548,7 @@ export class ReconciliationService {
       'O',
     );
   }
+
   private async kioskZaloPay(afcFile: UploadedExcelFile, partnerFile: UploadedExcelFile, dateRange: DateRange) {
     const partnerSelectedCol = ['Mã GD Zalopay', 'Số tiền thanh toán trước phí', 'Ngày giao dịch']
     const partnerKey = 'Mã GD Zalopay';
@@ -409,7 +581,43 @@ export class ReconciliationService {
       this.filterByDateRange(afc, 2, 'date_created', dateRange, 'afcFile'),
     );
   }
-  
+
+  private async kioskMomo(afcFile: UploadedExcelFile, partnerFile: UploadedExcelFile, dateRange: DateRange) {
+    const partnerSelectedCol = ['Bill_ID', 'Total_Amount', 'Date']
+    const partnerKey = 'Bill_ID';
+    const partnerPrice = 'Total_Amount';
+    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
+
+    const afcSelectedCol = ['id', 'total_amount', 'datecreated']
+    const afcKey = 'id';
+    const afcPrice = 'total_amount';
+    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
+
+    return this.recociliation(
+      this.filterByDateRange(partner, 2, 'Date', dateRange, 'partnerFile'),
+      this.filterByDateRange(afc, 2, 'datecreated', dateRange, 'afcFile'),
+      undefined,
+      'O',
+    );
+  }
+
+  private async kioskTechcombank(afcFile: UploadedExcelFile, partnerFile: UploadedExcelFile, dateRange: DateRange) {
+    const partnerSelectedCol = ['Mã đơn hàng', 'Số tiền đơn hàng', 'Thời gian giao dịch']
+    const partnerKey = 'Mã đơn hàng';
+    const partnerPrice = 'Số tiền đơn hàng';
+    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
+
+    const afcSelectedCol = ['id', 'totalAmount', 'date_created']
+    const afcKey = 'id';
+    const afcPrice = 'totalAmount';
+    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
+
+    return this.recociliation(
+      this.filterByDateRange(partner, 2, 'Thời gian giao dịch', dateRange, 'partnerFile'),
+      this.filterByDateRange(afc, 2, 'date_created', dateRange, 'afcFile'),
+      'O',
+    );
+  }
 
   private async recociliation(
     partnerData: DataSet,
