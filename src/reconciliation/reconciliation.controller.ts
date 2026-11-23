@@ -4,12 +4,18 @@ import {
   Controller,
   Get,
   Post,
+  Req,
   Res,
+  UploadedFile,
   UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileFieldsInterceptor } from '@nestjs/platform-express';
-import { Response } from 'express';
+import {
+  FileFieldsInterceptor,
+  FileInterceptor,
+} from '@nestjs/platform-express';
+import type { Request, Response } from 'express';
+import { MongoLogService } from '../db/mongo-log.service';
 import { ReconciliationService } from './reconciliation.service';
 import type { DateRange } from './reconciliation.service';
 import { UploadedExcelFile } from './uploaded-excel-file.type';
@@ -33,11 +39,46 @@ function isValidDate(value: string): boolean {
 
 @Controller('reconciliation')
 export class ReconciliationController {
-  constructor(private readonly reconciliationService: ReconciliationService) {}
+  constructor(
+    private readonly reconciliationService: ReconciliationService,
+    private readonly mongoLogService: MongoLogService,
+  ) {}
 
   @Get('codes')
   getCodes(): { code: number; name: string }[] {
     return this.reconciliationService.getCodes();
+  }
+
+  @Post('upload')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 70 * 1024 * 1024, files: 1 },
+    }),
+  )
+  async uploadFile(
+    @UploadedFile() file: UploadedExcelFile | undefined,
+    @Body() body: { type?: string },
+    @Req() request: Request,
+  ): Promise<{ type: string; filename: string; path: string }> {
+    if (!file) {
+      throw new BadRequestException('Vui lòng gửi một file trong field "file".');
+    }
+    if (body?.type !== 'partner' && body?.type !== 'afc') {
+      throw new BadRequestException(
+        'Field "type" phải có giá trị "partner" hoặc "afc".',
+      );
+    }
+
+    const result = await this.reconciliationService.storeUploadedFile(
+      file,
+      body.type,
+    );
+    await this.mongoLogService.recordUserAction(
+      request.ip,
+      'upload_file',
+      { type: result.type, filename: result.filename },
+    );
+    return result;
   }
 
   @Post('readfile')
@@ -59,6 +100,7 @@ export class ReconciliationController {
     @Body()
     body: { code?: string; fromDate?: string; toDate?: string },
     @Res() response: Response,
+    @Req() request: Request,
   ): Promise<void> {
     const partnerFile = files?.partnerFile?.[0];
     const afcFile = files?.afcFile?.[0];
@@ -92,6 +134,17 @@ export class ReconciliationController {
       partnerFile,
       code,
       dateRange,
+    );
+    await this.mongoLogService.recordUserAction(
+      request.ip,
+      'reconciliation',
+      {
+        code,
+        fromDate,
+        toDate,
+        partnerFilename: partnerFile.originalname,
+        afcFilename: afcFile.originalname,
+      },
     );
     response
       .set({

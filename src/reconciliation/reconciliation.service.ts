@@ -1,33 +1,25 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import ExcelJS from 'exceljs';
+import { mkdir, unlink, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { UploadedExcelFile } from './uploaded-excel-file.type';
 
-const PARTNER_KEY = 'Mã đơn hàng gốc';
-const PARTNER_PRICE = 'Số tiền';
-const AFC_KEY = 'Mã đối soát';
-const AFC_PRICE = 'Giá bán';
-const AFC_SELECTED_COLUMNS = [
-  'Mã đối soát',
-  'Ngày mua vé',
-  'Giá bán',
-  'Mã vé',
-];
-const PARTNER_SELECTED_COLUMNS = [
-  'Mã đơn hàng gốc',
-  'Thời gian',
-  'Loại giao dịch',
-  'Số tiền',
-];
+export type UploadFileType = 'partner' | 'afc';
+
 const CODE = [
   // { code: 1, name: 'App - Thẻ quốc thế (MPGS)'},
   // { code: 2, name: 'App - TKTT Sacombank' },
-  // { code: 3, name: 'App - Momo' },
-  // { code: 4, name: 'App - Zalopay' },
-  // { code: 5, name: 'App - ShopeePay' },
-  // { code: 6, name: 'Tap&go - ZaloPay' },
-  // { code: 7, name: 'Tap&go - Momo' },
-  // { code: 8, name: 'Tap&go - ShopeePay' },
+  { code: 3, name: 'App - Momo' },
+  { code: 4, name: 'App - Zalopay' },
+  { code: 5, name: 'App - ShopeePay' },
+  { code: 6, name: 'Tap&go - ZaloPay' },
+  { code: 7, name: 'Tap&go - Momo' },
+  { code: 8, name: 'Tap&go - ShopeePay' },
   { code: 9, name: 'Kiosk - TTT' },
   { code: 10, name: 'Kiosk - ZaloPay' },
   { code: 11, name: 'Kiosk - ShopeePay' },
@@ -95,6 +87,79 @@ export interface DateRange {
 
 @Injectable()
 export class ReconciliationService {
+  async storeUploadedFile(
+    file: UploadedExcelFile,
+    type: UploadFileType,
+  ): Promise<{ type: UploadFileType; filename: string; path: string }> {
+    const filename = file.originalname
+      .replace(/\\/g, '/')
+      .split('/')
+      .pop()
+      ?.replace(/[<>:"|?*\x00-\x1f]/g, '_')
+      .replace(/[. ]+$/, '')
+      .trim();
+    if (!filename || !filename.toLowerCase().endsWith('.xlsx')) {
+      throw new BadRequestException('Chỉ nhận file Excel .xlsx.');
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    try {
+      const xlsxBuffer = new ArrayBuffer(file.buffer.byteLength);
+      new Uint8Array(xlsxBuffer).set(file.buffer);
+      await workbook.xlsx.load(xlsxBuffer);
+    } catch {
+      throw new BadRequestException('File Excel không hợp lệ hoặc bị lỗi.');
+    }
+    if (workbook.worksheets.length !== 1) {
+      throw new BadRequestException(
+        'File Excel phải có đúng một sheet dữ liệu.',
+      );
+    }
+
+    const outputDirectory = resolve(process.cwd(), 'uploads');
+    const metadataDirectory = resolve(outputDirectory, '.metadata');
+    await mkdir(metadataDirectory, { recursive: true });
+    const outputPath = resolve(outputDirectory, filename);
+    const metadataPath = resolve(metadataDirectory, `${filename}.json`);
+    try {
+      await writeFile(outputPath, file.buffer, { flag: 'wx' });
+    } catch (error) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 'EEXIST'
+      ) {
+        throw new ConflictException(`File "${filename}" đã được upload.`);
+      }
+      throw error;
+    }
+    try {
+      await writeFile(
+        metadataPath,
+        JSON.stringify({ type, filename }),
+        { flag: 'wx' },
+      );
+    } catch (error) {
+      await unlink(outputPath);
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 'EEXIST'
+      ) {
+        throw new ConflictException(`File "${filename}" đã được upload.`);
+      }
+      throw error;
+    }
+
+    return {
+      type,
+      filename,
+      path: `uploads/${filename}`,
+    };
+  }
+
   getCodes(): { code: number; name: string }[] {
     return CODE.map(({ code, name }) => ({ code, name }));
   }
@@ -114,14 +179,21 @@ export class ReconciliationService {
     }
     switch (selectedCode.code) {
       case 1:
+        return this.appMPGS(afcFile, partnerFile, dateRange);
       case 2:
+        return this.appSacombank(afcFile, partnerFile, dateRange);
       case 3:
         return this.appMomo(afcFile, partnerFile, dateRange);
       case 4:
+        return this.appZalopay(afcFile, partnerFile, dateRange);
       case 5:
+        return this.appShopeePay(afcFile, partnerFile, dateRange);
       case 6:
+        return this.tapAndGoZaloPay(afcFile, partnerFile, dateRange);
       case 7:
+        return this.tapAndGoMomo(afcFile, partnerFile, dateRange);
       case 8:
+        return this.tapAndGoShopeePay(afcFile, partnerFile, dateRange);
       case 9:
         return this.kioskTTT(afcFile, partnerFile, dateRange);
       case 10:
@@ -427,7 +499,7 @@ export class ReconciliationService {
       this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
     );
   }
-  private async ShopeePay(
+  private async appShopeePay(
     afcFile: UploadedExcelFile,
     partnerFile: UploadedExcelFile,
     dateRange: DateRange
@@ -698,140 +770,6 @@ export class ReconciliationService {
     return Buffer.from(await result.xlsx.writeBuffer());
   }
 
-  async checkNotMatchingID(
-    afcFile: UploadedExcelFile,
-    partnerFile: UploadedExcelFile,
-    code?: string,
-  ): Promise<Buffer> {
-    void code;
-    const afc = await this.readRows(
-      afcFile,
-      'afcFile',
-      AFC_SELECTED_COLUMNS,
-      AFC_KEY,
-      AFC_PRICE,
-    );
-
-    const result = new ExcelJS.Workbook();
-    const partnerData = await this.Refunds(result, partnerFile);
-    const partnerHeaders = partnerData.remaining.headers;
-    const partnerRefunds = partnerData.refunds;
-
-    const partnerRowsByKey = this.indexByKey(
-      partnerData.remaining.rows,
-      afc.rows,
-    );
-    const afcRowsByKey = this.indexByKey(
-      afc.rows,
-      partnerData.remaining.rows,
-    );
-    const wrongPriceRowsByKey = this.wrongPriceRowsByKey(
-      afc.rows,
-      partnerData.remaining.rows,
-    );
-
-    const partnerRowsByMatch = this.findUnmatchedRows(
-      partnerData.remaining.rows,
-      afc.rows,
-    );
-    const afcRowsByMatch = this.findUnmatchedRows(
-      afc.rows,
-      partnerData.remaining.rows,
-    );
-    const partnerUnmatched = [
-      ...partnerRowsByMatch.unmatchedRows,
-      ...partnerRowsByMatch.extraRows,
-    ];
-    const afcUnmatched = [
-      ...afcRowsByMatch.unmatchedRows,
-      ...afcRowsByMatch.extraRows,
-    ];
-    const partnerUnmatchedSheet = result.addWorksheet('Partner dư');
-    partnerUnmatchedSheet.addRow(partnerData.remaining.fullHeaders);
-    for (const row of partnerUnmatched) {
-      partnerUnmatchedSheet.addRow(row.fullValues);
-    }
-
-    const afcUnmatchedSheet = result.addWorksheet('AFC dư');
-    afcUnmatchedSheet.addRow(afc.fullHeaders);
-    for (const row of afcUnmatched) {
-      afcUnmatchedSheet.addRow(row.fullValues);
-    }
-
-    const summarySheet = result.addWorksheet('Tong hop');
-    this.addSummaryRows(summarySheet, partnerUnmatched, afcUnmatched);
-
-    const wrongPriceSheet = result.addWorksheet('Lech gia');
-    wrongPriceSheet.addRow([
-      'Mã đối soát',
-      ...afc.headers.map((header) => `AFC - ${header}`),
-      ...partnerRefunds.headers.map((header) => `Partner - ${header}`),
-      'Giá lệch (AFC - Partner)',
-    ]);
-    for (const { afcRow, partnerRow, priceDifference } of wrongPriceRowsByKey.values()) {
-      wrongPriceSheet.addRow([
-        afcRow.displayKey,
-        ...afcRow.values,
-        ...partnerRow.values,
-        priceDifference,
-      ]);
-    }
-
-    const resultSheet = result.addWorksheet('Doi soat 1-1');
-    resultSheet.addRow([
-      'Số dòng khớp ở file đối ứng',
-      'Kết quả 1-1',
-      'Nguồn dữ liệu',
-      'Mã đối soát',
-      ...afc.headers.map((header) => `AFC - ${header}`),
-      ...partnerHeaders.map((header) => `Partner - ${header}`),
-    ]);
-
-    const afcPadding = Array.from(
-      { length: partnerHeaders.length },
-      () => null,
-    );
-    const partnerPadding = Array.from({ length: afc.headers.length }, () => null);
-
-    for (const row of afc.rows) {
-      const matchStatus = this.getMatchStatus(
-        row.key,
-        afcRowsByKey.rowsByKey,
-        partnerRowsByKey.rowsByKey,
-        'afcFile',
-      );
-      resultSheet.addRow([
-        'AFC',
-        matchStatus.check,
-        matchStatus.message,
-        row.displayKey,
-        ...row.values,
-        ...afcPadding,
-      ]);
-    }
-
-    for (const row of partnerRefunds.rows) {
-      const matchStatus = this.getMatchStatus(
-        row.key,
-        afcRowsByKey.rowsByKey,
-        partnerRowsByKey.rowsByKey,
-        'partnerFile',
-      );
-      resultSheet.addRow([
-        'Partner - Hoàn tiền',
-        matchStatus.check,
-        matchStatus.message,
-        row.displayKey,
-        ...partnerPadding,
-        ...row.values,
-      ]);
-    }
-
-    const output = Buffer.from(await result.xlsx.writeBuffer());
-
-    return output;
-  }
-
   private findUnmatchedRows(
     sourceRows: DataRow[],
     counterpartRows: DataRow[],
@@ -882,83 +820,6 @@ export class ReconciliationService {
     }
 
     return { unmatchedRows, extraRows };
-  }
-  
-  private addSummaryRows(
-    summarySheet: ExcelJS.Worksheet,
-    partnerUnmatched: DataRow[],
-    afcUnmatched: DataRow[],
-  ): void {
-    const partnerTotal = partnerUnmatched.reduce(
-      (total, row) => total + row.price,
-      0,
-    );
-    const afcTotal = afcUnmatched.reduce(
-      (total, row) => total + row.price,
-      0,
-    );
-
-    summarySheet.addRow([
-      'STT',
-      'Giải trình',
-      'Chi tiết giao dịch tại',
-    ]);
-    summarySheet.addRow([
-      1,
-      `AFC có ${afcUnmatched.length} giao dịch trị giá ${afcTotal} VND mà Partner không có (thu bù)`,
-      'AFC dư',
-    ]);
-    summarySheet.addRow([
-      2,
-      `Partner có ${partnerUnmatched.length} giao dịch trị giá ${partnerTotal} VND mà AFC không có (hoàn tiền)`,
-      'Partner dư',
-    ]);
-  }
-
-  private async Refunds(
-    workbook: ExcelJS.Workbook,
-    partnerFile: UploadedExcelFile,
-  ): Promise<RefundData> {
-    // Partner key and transaction type are part of PARTNER_SELECTED_COLUMNS.
-    const partnerData = await this.readRows(
-      partnerFile,
-      'partnerFile',
-      PARTNER_SELECTED_COLUMNS,
-      PARTNER_KEY,
-      PARTNER_PRICE,
-      'Loại giao dịch',
-    );
-    const partnerRefundRows: DataRow[] = [];
-    const partnerRemainingRows: DataRow[] = [];
-
-    for (const row of partnerData.rows) {
-      const isRefund = (row.transactionType ?? '')
-        .toLocaleLowerCase('vi-VN')
-        .includes('hoàn tiền');
-      (isRefund ? partnerRefundRows : partnerRemainingRows).push(row);
-    }
-
-    const partnerRefunds: DataSet = {
-      headers: partnerData.headers,
-      fullHeaders: partnerData.fullHeaders,
-      rows: partnerRefundRows,
-    };
-    const partnerRemaining: DataSet = {
-      headers: partnerData.headers,
-      fullHeaders: partnerData.fullHeaders,
-      rows: partnerRemainingRows,
-    };
-
-    const refundSheet = workbook.addWorksheet('Hoan tien');
-    refundSheet.addRow(partnerRefunds.headers);
-    for (const row of partnerRefunds.rows) {
-      refundSheet.addRow(row.values);
-    }
-
-    return {
-      refunds: partnerRefunds,
-      remaining: partnerRemaining,
-    };
   }
 
   private async readRows(
@@ -1188,90 +1049,6 @@ export class ReconciliationService {
       `${negative ? '-' : ''}${integerDigits}${decimalPart ? `.${decimalPart}` : ''}`,
     );
     return Number.isFinite(amount) ? Math.round(amount) : 0;
-  }
-
-  private wrongPriceRowsByKey(
-    afcRows: DataRow[],
-    partnerRows: DataRow[],
-  ): Map<string, WrongPriceRow> {
-    const rowsByKey = new Map<string, WrongPriceRow>();
-    const firstPartnerRowByKey = new Map<string, DataRow>();
-    const firstDifferentPriceRowByKey = new Map<string, DataRow>();
-
-    for (const partnerRow of partnerRows) {
-      const firstPartnerRow = firstPartnerRowByKey.get(partnerRow.key);
-      if (!firstPartnerRow) {
-        firstPartnerRowByKey.set(partnerRow.key, partnerRow);
-      } else if (
-        !firstDifferentPriceRowByKey.has(partnerRow.key) &&
-        partnerRow.price !== firstPartnerRow.price
-      ) {
-        firstDifferentPriceRowByKey.set(partnerRow.key, partnerRow);
-      }
-    }
-
-    for (const afcRow of afcRows) {
-      if (rowsByKey.has(afcRow.key)) {
-        continue;
-      }
-
-      const firstPartnerRow = firstPartnerRowByKey.get(afcRow.key);
-      const partnerRow =
-        firstPartnerRow?.price !== afcRow.price
-          ? firstPartnerRow
-          : firstDifferentPriceRowByKey.get(afcRow.key);
-      if (partnerRow) {
-        rowsByKey.set(afcRow.key, {
-          afcRow,
-          partnerRow,
-          priceDifference: afcRow.price - partnerRow.price,
-        });
-      }
-    }
-
-    return rowsByKey;
-  }
-
-  private getMatchStatus(
-    key: string,
-    afcRowsByKey: Map<string, number>,
-    partnerRowsByKey: Map<string, number>,
-    sourceFile: 'afcFile' | 'partnerFile',
-  ): { check: number; message: string } {
-    if (!key) {
-      return { check: 0, message: 'Không đạt - Thiếu Mã đối soát' };
-    }
-
-    const afcCount = afcRowsByKey.get(key) ?? 0;
-    const partnerCount = partnerRowsByKey.get(key) ?? 0;
-    const counterpartCount =
-      sourceFile === 'afcFile' ? partnerCount : afcCount;
-    if (afcCount === 1 && partnerCount === 1) {
-      return { check: counterpartCount, message: 'Khớp lệnh' };
-    }
-
-    const issues: string[] = [];
-    if (afcCount === 0) {
-      issues.push('không tìm thấy ở afcFile');
-    } else if (afcCount > 1) {
-      issues.push(`trùng ${afcCount} dòng ở afcFile`);
-    }
-
-    if (partnerCount === 0) {
-      issues.push('không tìm thấy ở partnerFile');
-    } else if (partnerCount > 1) {
-      issues.push(`trùng ${partnerCount} dòng ở partnerFile`);
-    }
-    if (afcCount > partnerCount) {
-      issues.push(`dư ${afcCount - partnerCount} dòng ở afcFile`);
-    } else if (partnerCount > afcCount) {
-      issues.push(`dư ${partnerCount - afcCount} dòng ở partnerFile`);
-    }
-
-    return {
-      check: afcCount,
-      message: `Không đạt - ${issues.join('; ')} (AFC ${afcCount}, partner ${partnerCount})`,
-    };
   }
 
 }
