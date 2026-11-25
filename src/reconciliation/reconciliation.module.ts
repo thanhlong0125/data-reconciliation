@@ -8,6 +8,6 @@ import { B2StorageService } from './B2Storage.service';
 @Module({
   imports: [DbModule],
   controllers: [ReconciliationController],
-  providers: [ReconciliationService, CronJobService,B2StorageService],
+  providers: [ReconciliationService,B2StorageService],//CronJobService
 })
 export class ReconciliationModule {}

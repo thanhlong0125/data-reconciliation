@@ -53,6 +53,9 @@ files. Use `page` (default `1`) and `limit` (default `10`, maximum `100`) query
 parameters for pagination. The response includes `data`, `page`, `limit`,
 `total`, and `totalPages`.
 
+During reconciliation, Excel date/time values are normalized to
+`Asia/Ho_Chi_Minh` (UTC+7) before the date-range filter is applied.
+
 ## Scheduled reconciliation
 
 The application checks for source files every 10 minutes. The job starts by

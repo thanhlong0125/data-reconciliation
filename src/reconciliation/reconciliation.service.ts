@@ -3,12 +3,16 @@ import {
   Injectable,
 } from '@nestjs/common';
 import ExcelJS from 'exceljs';
+import moment from 'moment-timezone';
 import { Readable } from 'node:stream';
 import { MongoLogService } from '../db/mongo-log.service';
 import { UploadedExcelFile } from '../public/uploaded-excel-file.type';
 import { B2StorageService } from './B2Storage.service';
 
 export type UploadFileType = 'partner' | 'afc';
+
+const FILE_TIMEZONE = 'Asia/Ho_Chi_Minh';
+const CALENDAR_DATE_FORMAT = 'YYYY-MM-DD';
 
 const CODE = [
   // { code: 1, name: 'App - Thẻ quốc thế (MPGS)'},
@@ -261,7 +265,7 @@ export class ReconciliationService {
     if (value instanceof Date) {
       return Number.isNaN(value.getTime())
         ? undefined
-        : value.toISOString().slice(0, 10);
+        : moment(value).tz(FILE_TIMEZONE).format(CALENDAR_DATE_FORMAT);
     }
 
     let text: string;
@@ -274,11 +278,14 @@ export class ReconciliationService {
         text = String(value);
       } else if (value > 0) {
         const excelDate = new Date(
-          Date.UTC(1899, 11, 30) + Math.floor(value) * 86400000,
+          Date.UTC(1899, 11, 30) + Math.round(value * 86400000),
         );
         return Number.isNaN(excelDate.getTime())
           ? undefined
-          : excelDate.toISOString().slice(0, 10);
+          : moment
+              .utc(excelDate)
+              .tz(FILE_TIMEZONE)
+              .format(CALENDAR_DATE_FORMAT);
       } else {
         return undefined;
       }
@@ -399,8 +406,20 @@ export class ReconciliationService {
     if (minute > 59 || second > 59) {
       return undefined;
     }
+
+    const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}.${(millisecondText ?? '0').padEnd(3, '0')}`;
     if (!timezone) {
-      return dateText;
+      const timestamp = new Date(calendarDate.getTime());
+      timestamp.setUTCHours(
+        hour,
+        minute,
+        second,
+        Number((millisecondText ?? '0').padEnd(3, '0')),
+      );
+      return moment
+        .utc(timestamp)
+        .tz(FILE_TIMEZONE)
+        .format(CALENDAR_DATE_FORMAT);
     }
 
     const normalizedTimezone =
@@ -415,12 +434,11 @@ export class ReconciliationService {
         return undefined;
       }
     }
-    const timestamp = new Date(
-      `${dateText}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}.${(millisecondText ?? '0').padEnd(3, '0')}${normalizedTimezone}`,
-    );
+
+    const timestamp = new Date(`${dateText}T${time}${normalizedTimezone}`);
     return Number.isNaN(timestamp.getTime())
       ? undefined
-      : timestamp.toISOString().slice(0, 10);
+      : moment(timestamp).tz(FILE_TIMEZONE).format(CALENDAR_DATE_FORMAT);
   }
 
   private indexByKey(
