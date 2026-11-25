@@ -196,7 +196,7 @@ export class ReconciliationService {
     partnerFile: UploadedExcelFile,
     code: number,
     dateRange?: DateRange,
-  ) {
+  ): Promise<Buffer> {
     const selectedCode = CODE.find(item => item.code === code);
     if (!selectedCode) {
       throw new BadRequestException(`Mã code ${code} không hợp lệ.`);
@@ -231,6 +231,10 @@ export class ReconciliationService {
         return this.kioskMomo(afcFile, partnerFile, dateRange);
       case 13:
         return this.kioskTechcombank(afcFile, partnerFile, dateRange);
+      default:
+        throw new BadRequestException(
+          `Mã code ${selectedCode.code} chưa được hỗ trợ.`,
+        );
     }
   }
   private filterByDateRange(
