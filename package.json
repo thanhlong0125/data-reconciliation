@@ -10,7 +10,11 @@
     "start:dev": "ts-node-dev --respawn --transpile-only src/main.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1177.0",
+    "@aws-sdk/lib-storage": "^3.1177.0",
+    "@aws-sdk/s3-request-presigner": "^3.1177.0",
     "@nestjs/common": "^11.2.10",
+    "@nestjs/config": "^12.1.1",
     "@nestjs/core": "^11.2.10",
     "@nestjs/platform-express": "^11.2.10",
     "class-transformer": "^0.5.1",

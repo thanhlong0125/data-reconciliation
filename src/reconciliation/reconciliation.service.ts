@@ -1,13 +1,12 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
 } from '@nestjs/common';
 import ExcelJS from 'exceljs';
-import { mkdir, unlink, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import { Readable } from 'node:stream';
-import { UploadedExcelFile } from './uploaded-excel-file.type';
+import { MongoLogService } from '../db/mongo-log.service';
+import { UploadedExcelFile } from '../public/uploaded-excel-file.type';
+import { B2StorageService } from './B2Storage.service';
 
 export type UploadFileType = 'partner' | 'afc';
 
@@ -87,10 +86,22 @@ export interface DateRange {
 
 @Injectable()
 export class ReconciliationService {
+  constructor(
+    private readonly b2StorageService: B2StorageService,
+    private readonly mongoLogService: MongoLogService,
+  ) {}
+
   async storeUploadedFile(
     file: UploadedExcelFile,
-    type: UploadFileType,
-  ): Promise<{ type: UploadFileType; filename: string; path: string }> {
+    userKey?: string,
+  ): Promise<{
+    id: string;
+    filename: string;
+    key: string;
+    links: string[];
+    size: number;
+    contentType: string;
+  }> {
     const filename = file.originalname
       .replace(/\\/g, '/')
       .split('/')
@@ -116,48 +127,60 @@ export class ReconciliationService {
       );
     }
 
-    const outputDirectory = resolve(process.cwd(), 'uploads');
-    const metadataDirectory = resolve(outputDirectory, '.metadata');
-    await mkdir(metadataDirectory, { recursive: true });
-    const outputPath = resolve(outputDirectory, filename);
-    const metadataPath = resolve(metadataDirectory, `${filename}.json`);
+    // const outputDirectory = resolve(process.cwd(), 'uploads');
+    // const metadataDirectory = resolve(outputDirectory, '.metadata');
+    // await mkdir(metadataDirectory, { recursive: true });
+    // const outputPath = resolve(outputDirectory, filename);
+    // const metadataPath = resolve(metadataDirectory, `${filename}.json`);
+    // await writeFile(outputPath, file.buffer, { flag: 'wx' });
+    // await writeFile(metadataPath, JSON.stringify({ type, filename }), {
+    //   flag: 'wx',
+    // });
+    const storedFile = await this.b2StorageService.uploadFile({
+      originalname: filename,
+      mimetype:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      size: file.buffer.byteLength,
+      buffer: file.buffer,
+    });
+    let id: string;
     try {
-      await writeFile(outputPath, file.buffer, { flag: 'wx' });
-    } catch (error) {
-      if (
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        error.code === 'EEXIST'
-      ) {
-        throw new ConflictException(`File "${filename}" đã được upload.`);
+      id = await this.mongoLogService.recordUploadedFile({
+        name: filename,
+        links: [storedFile.url],
+        status: 'uploaded',
+        key: storedFile.key,
+        userKey,
+        size: storedFile.size,
+        contentType: storedFile.contentType,
+      });
+    } catch (databaseError) {
+      try {
+        await this.b2StorageService.deleteFile(storedFile.key);
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [databaseError, cleanupError],
+          'Không lưu được metadata MongoDB và không xóa được file trên B2.',
+        );
       }
-      throw error;
+      throw databaseError;
     }
-    try {
-      await writeFile(
-        metadataPath,
-        JSON.stringify({ type, filename }),
-        { flag: 'wx' },
-      );
-    } catch (error) {
-      await unlink(outputPath);
-      if (
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        error.code === 'EEXIST'
-      ) {
-        throw new ConflictException(`File "${filename}" đã được upload.`);
-      }
-      throw error;
-    }
-
     return {
-      type,
+      id,
       filename,
-      path: `uploads/${filename}`,
+      key: storedFile.key,
+      links: [storedFile.url],
+      size: storedFile.size,
+      contentType: storedFile.contentType,
     };
+  }
+
+  getFile(id: string): Promise<{
+    key: string;
+    originalName: string;
+    mimeType: string;
+  }> {
+    return this.mongoLogService.getUploadedFile(id);
   }
 
   getCodes(): { code: number; name: string }[] {

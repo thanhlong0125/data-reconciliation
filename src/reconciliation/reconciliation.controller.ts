@@ -3,7 +3,9 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
+  Query,
   Req,
   Res,
   UploadedFile,
@@ -15,10 +17,12 @@ import {
   FileInterceptor,
 } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
+import { parsePagination } from '../common/pagination';
 import { MongoLogService } from '../db/mongo-log.service';
+import { B2StorageService } from './B2Storage.service';
 import { ReconciliationService } from './reconciliation.service';
 import type { DateRange } from './reconciliation.service';
-import { UploadedExcelFile } from './uploaded-excel-file.type';
+import { UploadedExcelFile } from '../public/uploaded-excel-file.type';
 
 function isValidDate(value: string): boolean {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
@@ -42,7 +46,8 @@ export class ReconciliationController {
   constructor(
     private readonly reconciliationService: ReconciliationService,
     private readonly mongoLogService: MongoLogService,
-  ) {}
+    private readonly b2StorageService: B2StorageService,
+  ) { }
 
   @Get('codes')
   getCodes(): { code: number; name: string }[] {
@@ -59,26 +64,68 @@ export class ReconciliationController {
     @UploadedFile() file: UploadedExcelFile | undefined,
     @Body() body: { type?: string },
     @Req() request: Request,
-  ): Promise<{ type: string; filename: string; path: string }> {
-    if (!file) {
-      throw new BadRequestException('Vui lòng gửi một file trong field "file".');
-    }
-    if (body?.type !== 'partner' && body?.type !== 'afc') {
-      throw new BadRequestException(
-        'Field "type" phải có giá trị "partner" hoặc "afc".',
+  ): Promise<{
+    filename: string;
+    id: string;
+    key: string;
+    links: string[];
+    size: number;
+    contentType: string;
+  }> {
+    try {
+      if (!file) {
+        throw new BadRequestException(
+          'Vui lòng gửi một file trong field "file".',
+        );
+      }
+      const result = await this.reconciliationService.storeUploadedFile(
+        file,
+        request.ip,
       );
+      await this.mongoLogService.recordUserAction(
+        request.ip,
+        'upload_file',
+        { filename: result.filename, key: result.key },
+      );
+      return result;
+    } catch (error) {
+      await this.mongoLogService.recordSystemEvent('upload_failed', {
+        filename: file?.originalname,
+        userKey: request.ip,
+        message:
+          error instanceof Error ? error.message : 'Lỗi không xác định.',
+      });
+      throw error;
     }
+  }
 
-    const result = await this.reconciliationService.storeUploadedFile(
-      file,
-      body.type,
-    );
-    await this.mongoLogService.recordUserAction(
+  @Get('download/:id')
+  async download(
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const file = await this.reconciliationService.getFile(id);
+
+    const body = await this.b2StorageService.downloadFile(file.key);
+
+    res.set({
+      'Content-Type': file.mimeType,
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(file.originalName)}"`,
+    });
+
+    body.pipe(res);
+  }
+
+  @Get('list-uploaded-files')
+  async listUploadedFiles(
+    @Req() request: Request,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.mongoLogService.getUploadedFiles(
       request.ip,
-      'upload_file',
-      { type: result.type, filename: result.filename },
+      parsePagination(page, limit),
     );
-    return result;
   }
 
   @Post('readfile')
@@ -91,6 +138,7 @@ export class ReconciliationController {
       { limits: { fileSize: 20 * 1024 * 1024, files: 2 } },
     ),
   )
+
   async filterRefunds(
     @UploadedFiles()
     files: {

@@ -27,22 +27,39 @@ The app writes user actions to `user_logs` and system events to `system_logs`.
 The temporary `userKey` is the request IP (not an authenticated identity).
 Logs expire after 10 days. When `MONGODB_URI` is unset, the app continues
 without MongoDB persistence and writes a startup warning.
+Successful B2 uploads are also recorded in the persistent `uploaded_files`
+collection with `name`, `links`, and `status` fields, plus file metadata.
+`links` contains the B2 object URL; private buckets still require authorization
+to open the URL.
 
 ## Upload input files
 
-`POST /reconciliation/upload` accepts one multipart file per request:
+`POST /reconciliation/upload` accepts one multipart file per request and uploads
+it to Backblaze B2:
 
 - `file`: an `.xlsx` workbook with exactly one worksheet, up to 70 MB.
 - `type`: `partner` or `afc`.
 
-Files are stored locally under `uploads/` using their original filename; the
-`type` is recorded in `uploads/.metadata/`. Uploading a filename that already
-exists returns HTTP 409, and existing files are never overwritten.
+Set `B2_BUCKET_NAME`, `B2_ENDPOINT`, `B2_KEY_ID`, and `B2_APPLICATION_KEY` in
+`.env` or the process environment. `B2_REGION` is optional when it can be
+derived from a standard Backblaze S3 endpoint. The API response includes the
+B2 object `key` and MongoDB `id`. Download the uploaded workbook with
+`GET /reconciliation/download/:id`; the API streams it from B2. The upload uses
+an in-memory buffer and does not write the input workbook to the local
+`uploads/` directory.
+
+`GET /reconciliation/list-uploaded-files` lists the current user's uploaded
+files. Use `page` (default `1`) and `limit` (default `10`, maximum `100`) query
+parameters for pagination. The response includes `data`, `page`, `limit`,
+`total`, and `totalPages`.
 
 ## Scheduled reconciliation
 
-The application checks for source files every 10 minutes. Configure these
-environment variables to enable the job:
+The application checks for source files every 10 minutes. The job starts by
+default; set `RECONCILIATION_CRON_ENABLED=false` to disable its timer without
+removing `CronJobService` from the module. The service also exposes `stop()` to
+stop the timer programmatically. Configure these environment variables to use
+the job:
 
 - `RECONCILIATION_SOURCE_URL`: HTTPS GET endpoint returning JSON with
   `partnerFileUrl` and `afcFileUrl`, both HTTPS URLs to `.xlsx` files.

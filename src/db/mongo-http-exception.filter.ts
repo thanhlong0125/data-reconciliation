@@ -4,6 +4,7 @@ import {
   ExceptionFilter,
   HttpException,
   Injectable,
+  Logger,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { MongoLogService } from './mongo-log.service';
@@ -11,6 +12,8 @@ import { MongoLogService } from './mongo-log.service';
 @Catch()
 @Injectable()
 export class MongoHttpExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(MongoHttpExceptionFilter.name);
+
   constructor(private readonly mongoLogService: MongoLogService) {}
 
   async catch(exception: unknown, host: ArgumentsHost): Promise<void> {
@@ -21,6 +24,12 @@ export class MongoHttpExceptionFilter implements ExceptionFilter {
       exception instanceof HttpException ? exception.getStatus() : 500;
     const message =
       exception instanceof Error ? exception.message : 'Lỗi không xác định.';
+    if (statusCode >= 500) {
+      this.logger.error(
+        `${request.method} ${request.path} failed: ${message}`,
+        exception instanceof Error ? exception.stack : undefined,
+      );
+    }
     const isUploadValidationError =
       statusCode < 500 &&
       (request.path === '/reconciliation/upload' ||

@@ -1,11 +1,19 @@
 import {
+  BadRequestException,
+  InternalServerErrorException,
   Injectable,
   Logger,
+  NotFoundException,
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import type { Db, Document } from 'mongodb';
+import { createPaginatedResult } from '../common/pagination';
+import type {
+  PaginatedResult,
+  PaginationOptions,
+} from '../common/pagination';
 
 type LogDetails = Document;
 
@@ -18,9 +26,7 @@ export class MongoLogService implements OnModuleInit, OnModuleDestroy {
   private database: Db | undefined;
 
   async onModuleInit(): Promise<void> {
-    console.log("process.env.MONGODB_URI ", process.env.MONGODB_URI)
     const uri = process.env.MONGODB_URI?.trim();
-    console.log("uri", uri)
     if (!uri) {
       this.logger.warn('MONGODB_URI chưa cấu hình; log MongoDB đang tắt.');
       return;
@@ -48,7 +54,6 @@ export class MongoLogService implements OnModuleInit, OnModuleDestroy {
             { expireAfterSeconds: LOG_RETENTION_SECONDS },
           ),
       ]);
-      await this.recordSystemEvent('application_started');
       this.logger.log('Đã kết nối MongoDB và bật lưu log.');
     } catch (error) {
       await client.close();
@@ -68,6 +73,30 @@ export class MongoLogService implements OnModuleInit, OnModuleDestroy {
     await client.close();
     this.client = undefined;
     this.database = undefined;
+  }
+  async getUploadedFiles(
+    userKey: string | undefined,
+    pagination: PaginationOptions,
+  ): Promise<PaginatedResult<Document>> {
+    if (!this.database) {
+      throw new InternalServerErrorException(
+        'MongoDB chưa kết nối; không thể lấy danh sách file đã upload.',
+      );
+    }
+
+    const collection = this.database.collection('uploaded_files');
+    const filter = { userKey: userKey || 'unknown' };
+    const [files, total] = await Promise.all([
+      collection
+        .find(filter)
+        .sort({ uploadedAt: -1, _id: -1 })
+        .skip(pagination.skip)
+        .limit(pagination.limit)
+        .toArray(),
+      collection.countDocuments(filter),
+    ]);
+
+    return createPaginatedResult(files, total, pagination);
   }
 
   async recordUserAction(
@@ -92,6 +121,66 @@ export class MongoLogService implements OnModuleInit, OnModuleDestroy {
       details,
       createdAt: new Date(),
     });
+  }
+
+  async recordUploadedFile(record: {
+    name: string;
+    links: string[];
+    status: string;
+    key: string;
+    userKey: string | undefined;
+    size: number;
+    contentType: string;
+  }): Promise<string> {
+    if (!this.database) {
+      throw new Error(
+        'MongoDB chưa kết nối; không thể lưu thông tin file đã upload.',
+      );
+    }
+
+    const result = await this.database.collection('uploaded_files').insertOne({
+      ...record,
+      userKey: record.userKey || 'unknown',
+      uploadedAt: new Date(),
+    });
+    return result.insertedId.toString();
+  }
+
+  async getUploadedFile(id: string): Promise<{
+    key: string;
+    originalName: string;
+    mimeType: string;
+  }> {
+    if (!ObjectId.isValid(id)) {
+      throw new BadRequestException('ID file không hợp lệ.');
+    }
+    if (!this.database) {
+      throw new InternalServerErrorException(
+        'MongoDB chưa kết nối; không thể tìm file.',
+      );
+    }
+
+    const file = await this.database
+      .collection('uploaded_files')
+      .findOne({ _id: new ObjectId(id) });
+    if (!file) {
+      throw new NotFoundException('Không tìm thấy file đã upload.');
+    }
+    if (
+      typeof file.key !== 'string' ||
+      typeof file.name !== 'string' ||
+      typeof file.contentType !== 'string'
+    ) {
+      throw new InternalServerErrorException(
+        'Thông tin file lưu trong MongoDB không hợp lệ.',
+      );
+    }
+
+    return {
+      key: file.key,
+      originalName: file.name,
+      mimeType: file.contentType,
+    };
   }
 
   private async insertLog(

@@ -8,7 +8,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { MongoLogService } from '../db/mongo-log.service';
 import { ReconciliationService } from './reconciliation.service';
-import { UploadedExcelFile } from './uploaded-excel-file.type';
+import { UploadedExcelFile } from '../public/uploaded-excel-file.type';
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const JOB_INTERVAL = 10 * 60 * 1000;
@@ -23,6 +23,8 @@ export class CronJobService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CronJobService.name);
   private interval: ReturnType<typeof setInterval> | undefined;
   private isRunning = false;
+  private readonly cronEnabled =
+    process.env.RECONCILIATION_CRON_ENABLED?.trim().toLowerCase() !== 'false';
 
   constructor(
     private readonly reconciliationService: ReconciliationService,
@@ -30,23 +32,31 @@ export class CronJobService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
+    if (!this.cronEnabled) {
+      this.logger.log('Cron đối soát đang tắt theo RECONCILIATION_CRON_ENABLED.');
+      return;
+    }
+
     this.interval = setInterval(() => {
-      void this.runJob();
+      // void this.runJob();
     }, JOB_INTERVAL);
   }
 
   onModuleDestroy(): void {
+    this.stop();
+  }
+
+  stop(): void {
     if (this.interval) {
       clearInterval(this.interval);
+      this.interval = undefined;
+      this.logger.log('Đã dừng cron đối soát.');
     }
   }
 
   private async runJob(): Promise<void> {
     if (this.isRunning) {
       this.logger.warn('Đang chạy cron đối soát; bỏ qua lần chạy này.');
-      await this.mongoLogService.recordSystemEvent('cron_skipped', {
-        reason: 'previous_run_still_running',
-      });
       return;
     }
 
@@ -55,9 +65,6 @@ export class CronJobService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(
         'Thiếu env RECONCILIATION_SOURCE_URL',
       );
-      await this.mongoLogService.recordSystemEvent('cron_skipped', {
-        reason: 'missing_RECONCILIATION_SOURCE_URL',
-      });
       return;
     }
 
