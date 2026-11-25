@@ -15,8 +15,8 @@ const FILE_TIMEZONE = 'Asia/Ho_Chi_Minh';
 const CALENDAR_DATE_FORMAT = 'YYYY-MM-DD';
 
 const CODE = [
-  // { code: 1, name: 'App - Thẻ quốc thế (MPGS)'},
-  // { code: 2, name: 'App - TKTT Sacombank' },
+  { code: 1, name: 'App - Thẻ quốc thế (MPGS)'},
+  { code: 2, name: 'App - TKTT Sacombank' },
   { code: 3, name: 'App - Momo' },
   { code: 4, name: 'App - Zalopay' },
   { code: 5, name: 'App - ShopeePay' },
@@ -489,9 +489,9 @@ export class ReconciliationService {
     partnerFile: UploadedExcelFile,
     dateRange: DateRange
   ) {
-    const partnerSelectedCol = ['Mã đơn hàng gốc', 'Số tiền', 'Thời gian']
-    const partnerKey = 'Mã đơn hàng gốc';
-    const partnerPrice = 'Số tiền';
+    const partnerSelectedCol = ['Reference_No', 'TRANS_AMOUNT', 'TRANS_DATE']
+    const partnerKey = 'Reference_No';
+    const partnerPrice = 'TRANS_AMOUNT';
     const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
 
     const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
@@ -522,6 +522,10 @@ export class ReconciliationService {
     return this.recociliation(
       this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
       this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
+      undefined,
+      undefined,
+      undefined,
+      true,
     );
   }
   private async appZalopay(
@@ -529,9 +533,9 @@ export class ReconciliationService {
     partnerFile: UploadedExcelFile,
     dateRange: DateRange
   ) {
-    const partnerSelectedCol = ['Mã đơn hàng gốc', 'Số tiền', 'Thời gian']
-    const partnerKey = 'Mã đơn hàng gốc';
-    const partnerPrice = 'Số tiền';
+    const partnerSelectedCol = ['Payment Request ID', 'Số tiền thanh toán trước phí', 'Ngày giao dịch']
+    const partnerKey = 'Payment Request ID';
+    const partnerPrice = 'Số tiền thanh toán trước phí';
     const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
 
     const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
@@ -542,6 +546,10 @@ export class ReconciliationService {
     return this.recociliation(
       this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
       this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
+      undefined,
+      undefined,
+      true,
+      true,
     );
   }
   private async appShopeePay(
@@ -741,6 +749,8 @@ export class ReconciliationService {
     afcData: DataSet,
     addKeyAFC?: string,
     addKeyPartner?: string,
+    cutKeyAFC = false,
+    cutKeyPartner = false,
   ): Promise<Buffer> {
 
     const partnerRowsByMatch = this.findUnmatchedRows(
@@ -748,12 +758,16 @@ export class ReconciliationService {
       afcData.rows,
       addKeyPartner,
       addKeyAFC,
+      cutKeyPartner,
+      cutKeyAFC,
     );
     const afcRowsByMatch = this.findUnmatchedRows(
       afcData.rows,
       partnerData.rows,
       addKeyAFC,
       addKeyPartner,
+      cutKeyAFC,
+      cutKeyPartner,
     );
     const partnerThuDuRows = partnerRowsByMatch.unmatchedRows;
     const partnerNhieuHonAfcRows = partnerRowsByMatch.extraRows;
@@ -820,6 +834,8 @@ export class ReconciliationService {
     counterpartRows: DataRow[],
     sourceAddKey?: string,
     counterpartAddKey?: string,
+    sourceCutKeyAtSpace = false,
+    counterpartCutKeyAtSpace = false,
   ): {
     unmatchedRows: DataRow[];
     extraRows: DataRow[];
@@ -830,12 +846,18 @@ export class ReconciliationService {
         ? `${normalizedPrefix}${key}`
         : key;
     };
+    const normalizeKey = (key: string, cutAtSpace: boolean): string =>
+      cutAtSpace ? key.trim().split(/\s+/, 1)[0] : key;
+
     const counterpartCountsByKey = new Map<string, number>();
     for (const row of counterpartRows) {
       if (!row.key) {
         continue;
       }
-      const key = addPrefix(row.key, counterpartAddKey);
+      const key = addPrefix(
+        normalizeKey(row.key, counterpartCutKeyAtSpace),
+        counterpartAddKey,
+      );
       counterpartCountsByKey.set(
         key,
         (counterpartCountsByKey.get(key) ?? 0) + 1,
@@ -851,7 +873,10 @@ export class ReconciliationService {
         continue;
       }
 
-      const key = addPrefix(row.key, sourceAddKey);
+      const key = addPrefix(
+        normalizeKey(row.key, sourceCutKeyAtSpace),
+        sourceAddKey,
+      );
       const sourceOccurrence =
         (sourceOccurrencesByKey.get(key) ?? 0) + 1;
       sourceOccurrencesByKey.set(key, sourceOccurrence);
