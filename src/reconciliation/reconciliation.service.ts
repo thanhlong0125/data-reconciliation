@@ -11,6 +11,12 @@ import { B2StorageService } from './B2Storage.service';
 
 export type UploadFileType = 'partner' | 'afc';
 
+export interface ReconciliationColumns {
+  key: string;
+  time: string;
+  price: string;
+}
+
 const FILE_TIMEZONE = 'Asia/Ho_Chi_Minh';
 const CALENDAR_DATE_FORMAT = 'YYYY-MM-DD';
 
@@ -60,12 +66,29 @@ interface CutKeyConfig {
   index: number;
 }
 
+interface ReconciliationOptions {
+  addKeyAFC?: string;
+  addKeyPartner?: string;
+  cutKeyAFC?: CutKeyConfig;
+  cutKeyPartner?: CutKeyConfig;
+  ignoreFailedPartnerTransactions?: boolean;
+}
+
+const RECONCILIATION_OPTIONS: Partial<
+  Record<number, ReconciliationOptions>
+> = {
+  2: { cutKeyPartner: { key: '[PCA HCMC Metro HURC]', index: 1 } },
+  10: { ignoreFailedPartnerTransactions: true },
+  11: { addKeyAFC: 'O' },
+  12: { addKeyPartner: 'O' },
+  13: { addKeyAFC: 'O' },
+};
+
 interface DataRow {
   rowNumber: number;
   key: string;
   displayKey: string;
   price: number;
-  transactionType?: string;
   values: ExcelJS.CellValue[];
   fullValues: ExcelJS.CellValue[];
 }
@@ -75,6 +98,7 @@ interface DataSet {
   fullHeaders: string[];
   rows: DataRow[];
   refundRows: DataRow[];
+  dateColumn: string;
 }
 
 export interface DateRange {
@@ -189,7 +213,10 @@ export class ReconciliationService {
     afcFile: UploadedExcelFile,
     partnerFile: UploadedExcelFile,
     code: number,
-    dateRange?: DateRange,
+    dateRange: DateRange,
+    partnerColumns?: ReconciliationColumns,
+    afcColumns?: ReconciliationColumns,
+    keyRefund?: string,
   ): Promise<Buffer> {
     const selectedCode = CODE.find(item => item.code === code);
     if (!selectedCode) {
@@ -198,40 +225,20 @@ export class ReconciliationService {
     if (!dateRange) {
       throw new BadRequestException('Vui lòng chọn khoảng ngày đối soát.');
     }
-    switch (selectedCode.code) {
-      case 0:
-        return this.appMomoMiniApp(afcFile, partnerFile, dateRange);
-      case 1:
-        return this.appMPGS(afcFile, partnerFile, dateRange);
-      case 2:
-        return this.appSacombank(afcFile, partnerFile, dateRange);
-      case 3:
-        return this.appMomo(afcFile, partnerFile, dateRange);
-      case 4:
-        return this.appZalopay(afcFile, partnerFile, dateRange);
-      case 5:
-        return this.appShopeePay(afcFile, partnerFile, dateRange);
-      case 6:
-        return this.tapAndGoZaloPay(afcFile, partnerFile, dateRange);
-      case 7:
-        return this.tapAndGoMomo(afcFile, partnerFile, dateRange);
-      case 8:
-        return this.tapAndGoShopeePay(afcFile, partnerFile, dateRange);
-      case 9:
-        return this.kioskTTT(afcFile, partnerFile, dateRange);
-      case 10:
-        return this.kioskZaloPay(afcFile, partnerFile, dateRange);
-      case 11:
-        return this.kioskShopeePay(afcFile, partnerFile, dateRange);
-      case 12:
-        return this.kioskMomo(afcFile, partnerFile, dateRange);
-      case 13:
-        return this.kioskTechcombank(afcFile, partnerFile, dateRange);
-      default:
-        throw new BadRequestException(
-          `Mã code ${selectedCode.code} chưa được hỗ trợ.`,
-        );
+    if (!partnerColumns || !afcColumns) {
+      throw new BadRequestException(
+        'Vui lòng truyền đủ cột đối soát cho partner và AFC.',
+      );
     }
+    return this.reconcileFiles(
+      afcFile,
+      partnerFile,
+      dateRange,
+      partnerColumns,
+      afcColumns,
+      keyRefund,
+      selectedCode.code,
+    );
   }
 
   private filterByDateRange(
@@ -241,18 +248,19 @@ export class ReconciliationService {
     dateRange: DateRange,
     fileLabel: string,
   ): DataSet {
+    const resolvedDateColumn = data.dateColumn ?? dateColumn;
     const rows = data.rows.filter((row) => {
       const value = row.values[dateColumnIndex];
       if (value === null || value === undefined || value === '') {
         throw new BadRequestException(
-          `Thiếu ngày ở cột "${dateColumn}", dòng ${row.rowNumber} của ${fileLabel}.`,
+          `Thiếu ngày ở cột "${resolvedDateColumn}", dòng ${row.rowNumber} của ${fileLabel}.`,
         );
       }
 
       const rowDate = this.toCalendarDate(value);
       if (!rowDate) {
         throw new BadRequestException(
-          `Ngày không hợp lệ ở cột "${dateColumn}", dòng ${row.rowNumber} của ${fileLabel}.`,
+          `Ngày không hợp lệ ở cột "${resolvedDateColumn}", dòng ${row.rowNumber} của ${fileLabel}.`,
         );
       }
 
@@ -260,6 +268,30 @@ export class ReconciliationService {
     });
 
     return { ...data, rows };
+  }
+
+  private readReconciliationRows(
+    file: UploadedExcelFile,
+    fileLabel: string,
+    columns: ReconciliationColumns,
+    keyRefund?: string,
+  ): Promise<DataSet> {
+    const selectedColumnsForInput = [
+      columns.key,
+      columns.price,
+      columns.time,
+      ...(keyRefund ? [keyRefund] : []),
+    ];
+
+    return this.readRows(
+      file,
+      fileLabel,
+      selectedColumnsForInput,
+      columns.key,
+      columns.price,
+      columns.time,
+      keyRefund,
+    );
   }
 
   private toCalendarDate(value: ExcelJS.CellValue): string | undefined {
@@ -446,304 +478,62 @@ export class ReconciliationService {
     
   }
 
-//========================================APP========================================
-
-  private async appMomoMiniApp(
-    afcFile: UploadedExcelFile,
-    partnerFile: UploadedExcelFile,
-    dateRange: DateRange
-  ) {
-    const partnerSelectedCol = ['Mã đơn hàng gốc', 'Số tiền', 'Thời gian']
-    const partnerKey = 'Mã đơn hàng gốc';
-    const partnerPrice = 'Số tiền';
-    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
-
-    const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
-    const afcKey = 'Mã đối soát';
-    const afcPrice = 'Giá bán';
-    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
-
-    return this.recociliation(
-      this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
-      this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
-    );
-  }
-  private async appMomo(
-    afcFile: UploadedExcelFile,
-    partnerFile: UploadedExcelFile,
-    dateRange: DateRange
-  ) {
-    const partnerSelectedCol = ['Bill_ID', 'Total_Amount', 'Date']
-    const partnerKey = 'Bill_ID';
-    const partnerPrice = 'Total_Amount';
-    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice,'Status');
-
-    const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
-    const afcKey = 'Mã đối soát';
-    const afcPrice = 'Giá bán';
-    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
-
-    return this.recociliation(
-      this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
-      this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
-    );
-  }
-  private async appMPGS(
-    afcFile: UploadedExcelFile,
-    partnerFile: UploadedExcelFile,
-    dateRange: DateRange
-  ) {
-    const partnerSelectedCol = ['Reference_No', 'TRANS_AMOUNT', 'TRANS_DATE']
-    const partnerKey = 'Reference_No';
-    const partnerPrice = 'TRANS_AMOUNT';
-    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
-
-    const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
-    const afcKey = 'Mã đối soát';
-    const afcPrice = 'Giá bán';
-    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
-
-    return this.recociliation(
-      this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
-      this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
-    );
-  }
-  private async appSacombank(
-    afcFile: UploadedExcelFile,
-    partnerFile: UploadedExcelFile,
-    dateRange: DateRange
-  ) {
-    const partnerSelectedCol = ['Nội dung', 'Số tiền gửi', 'Ngày hiệu lực']
-    const partnerKey = 'Nội dung';
-    const partnerPrice = 'Số tiền gửi';
-    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
-
-    const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
-    const afcKey = 'Mã đối soát';
-    const afcPrice = 'Giá bán';
-    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
-
-    return this.recociliation(
-      this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
-      this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
-      undefined,
-      undefined,
-      undefined,
-      { key: '[PCA HCMC Metro HURC]', index: 1 },
-    );
-  }
-  private async appZalopay(
-    afcFile: UploadedExcelFile,
-    partnerFile: UploadedExcelFile,
-    dateRange: DateRange
-  ) {
-    const partnerSelectedCol = ['Payment Request ID', 'Số tiền thanh toán trước phí', 'Ngày giao dịch']
-    const partnerKey = 'Payment Request ID';
-    const partnerPrice = 'Số tiền thanh toán trước phí';
-    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice,'Loại GD');
-
-    const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
-    const afcKey = 'Mã đối soát';
-    const afcPrice = 'Giá bán';
-    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
-
-    return this.recociliation(
-      this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
-      this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
-    );
-  }
-  private async appShopeePay(
-    afcFile: UploadedExcelFile,
-    partnerFile: UploadedExcelFile,
-    dateRange: DateRange
-  ) {
-    const partnerSelectedCol = ['Mã đơn hàng gốc', 'Số tiền', 'Thời gian']
-    const partnerKey = 'Mã đơn hàng gốc';
-    const partnerPrice = 'Số tiền';
-    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice,'Loại giao dịch');
-
-    const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
-    const afcKey = 'Mã đối soát';
-    const afcPrice = 'Giá bán';
-    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
-
-    return this.recociliation(
-      this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
-      this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
-    );
-  }
-//========================================TAP&GO========================================
-  private async tapAndGoZaloPay(
-    afcFile: UploadedExcelFile,
-    partnerFile: UploadedExcelFile,
-    dateRange: DateRange
-  ) {
-    const partnerSelectedCol = ['Mã đơn hàng gốc', 'Số tiền', 'Thời gian']
-    const partnerKey = 'Mã đơn hàng gốc';
-    const partnerPrice = 'Số tiền';
-    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
-
-    const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
-    const afcKey = 'Mã đối soát';
-    const afcPrice = 'Giá bán';
-    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
-
-    return this.recociliation(
-      this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
-      this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
-    );
-  }
-  private async tapAndGoMomo(
-    afcFile: UploadedExcelFile,
-    partnerFile: UploadedExcelFile,
-    dateRange: DateRange
-  ) {
-    const partnerSelectedCol = ['Mã đơn hàng gốc', 'Số tiền', 'Thời gian']
-    const partnerKey = 'Mã đơn hàng gốc';
-    const partnerPrice = 'Số tiền';
-    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
-
-    const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
-    const afcKey = 'Mã đối soát';
-    const afcPrice = 'Giá bán';
-    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
-
-    return this.recociliation(
-      this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
-      this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
-    );
-  }
-  private async tapAndGoShopeePay(
-    afcFile: UploadedExcelFile,
-    partnerFile: UploadedExcelFile,
-    dateRange: DateRange
-  ) {
-    const partnerSelectedCol = ['Mã đơn hàng gốc', 'Số tiền', 'Thời gian']
-    const partnerKey = 'Mã đơn hàng gốc';
-    const partnerPrice = 'Số tiền';
-    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
-
-    const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
-    const afcKey = 'Mã đối soát';
-    const afcPrice = 'Giá bán';
-    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
-
-    return this.recociliation(
-      this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
-      this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
-    );
-  }
-
-//========================================KIOSK========================================
-  private async kioskTTT(
+  private async reconcileFiles(
     afcFile: UploadedExcelFile,
     partnerFile: UploadedExcelFile,
     dateRange: DateRange,
-  ) {
-    const partnerSelectedCol = ['Reference_No', 'TRANS_AMOUNT', 'TRANS_DATE']
-    const partnerKey = 'Reference_No';
-    const partnerPrice = 'TRANS_AMOUNT';
-    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
-
-    const afcSelectedCol = ['paymentNo', 'totalAmount', 'date_created']
-    const afcKey = 'paymentNo';
-    const afcPrice = 'totalAmount';
-    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
-
-    return this.recociliation(
-      this.filterByDateRange(partner, 2, 'TRANS_DATE', dateRange, 'partnerFile'),
-      this.filterByDateRange(afc, 2, 'date_created', dateRange, 'afcFile'),
+    partnerColumns: ReconciliationColumns,
+    afcColumns: ReconciliationColumns,
+    keyRefund: string | undefined,
+    code: number,
+  ): Promise<Buffer> {
+    const options = RECONCILIATION_OPTIONS[code] ?? {};
+    const partner = await this.readReconciliationRows(
+      partnerFile,
+      'partnerFile',
+      partnerColumns,
+      keyRefund,
     );
-  }
-  
-  private async kioskShopeePay(afcFile: UploadedExcelFile, partnerFile: UploadedExcelFile, dateRange: DateRange) {
-    const partnerSelectedCol = ['Mã tham chiếu', 'Giá trị giao dịch', 'Thời gian tạo']
-    const partnerKey = 'Mã tham chiếu';
-    const partnerPrice = 'Giá trị giao dịch';
-    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
-
-    const afcSelectedCol = ['id', 'totalAmount', 'date_created']
-    const afcKey = 'id';
-    const afcPrice = 'totalAmount';
-    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
-
-    return this.recociliation(
-      this.filterByDateRange(partner, 2, 'Thời gian tạo', dateRange, 'partnerFile'),
-      this.filterByDateRange(afc, 2, 'date_created', dateRange, 'afcFile'),
-      'O',
+    const afc = await this.readReconciliationRows(
+      afcFile,
+      'afcFile',
+      afcColumns,
+      keyRefund,
     );
-  }
-
-  private async kioskZaloPay(afcFile: UploadedExcelFile, partnerFile: UploadedExcelFile, dateRange: DateRange) {
-    const partnerSelectedCol = ['Mã GD Zalopay', 'Số tiền thanh toán trước phí', 'Ngày giao dịch']
-    const partnerKey = 'Mã GD Zalopay';
-    const partnerPrice = 'Số tiền thanh toán trước phí';
-    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
-
-    const afcSelectedCol = ['id', 'totalAmount', 'date_created']
-    const afcKey = 'id';
-    const afcPrice = 'totalAmount';
-    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
-    const partnerWithoutFailedTransactions = {
-      ...partner,
-      rows: partner.rows.filter((row) => {
-        const status = row.values[3];
-        return !(
-          typeof status === 'string' &&
-          status.trim().toLocaleLowerCase('vi-VN').includes('thất bại')
-        );
-      }),
-    };
+    const partnerRows = options.ignoreFailedPartnerTransactions
+      ? {
+          ...partner,
+          rows: partner.rows.filter((row) => {
+            const status = row.values[3];
+            return !(
+              typeof status === 'string' &&
+              status.trim().toLocaleLowerCase('vi-VN').includes('thất bại')
+            );
+          }),
+        }
+      : partner;
 
     return this.recociliation(
       this.filterByDateRange(
-        partnerWithoutFailedTransactions,
+        partnerRows,
         2,
-        'Ngày giao dịch',
+        partnerColumns.time,
         dateRange,
         'partnerFile',
       ),
-      this.filterByDateRange(afc, 2, 'date_created', dateRange, 'afcFile'),
+      this.filterByDateRange(
+        afc,
+        2,
+        afcColumns.time,
+        dateRange,
+        'afcFile',
+      ),
+      options.addKeyAFC,
+      options.addKeyPartner,
+      options.cutKeyAFC,
+      options.cutKeyPartner,
     );
   }
-
-  private async kioskMomo(afcFile: UploadedExcelFile, partnerFile: UploadedExcelFile, dateRange: DateRange) {
-    const partnerSelectedCol = ['Bill_ID', 'Total_Amount', 'Date']
-    const partnerKey = 'Bill_ID';
-    const partnerPrice = 'Total_Amount';
-    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
-
-    const afcSelectedCol = ['id', 'total_amount', 'datecreated']
-    const afcKey = 'id';
-    const afcPrice = 'total_amount';
-    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
-
-    return this.recociliation(
-      this.filterByDateRange(partner, 2, 'Date', dateRange, 'partnerFile'),
-      this.filterByDateRange(afc, 2, 'datecreated', dateRange, 'afcFile'),
-      undefined,
-      'O',
-    );
-  }
-
-  private async kioskTechcombank(afcFile: UploadedExcelFile, partnerFile: UploadedExcelFile, dateRange: DateRange) {
-    const partnerSelectedCol = ['Mã đơn hàng', 'Số tiền đơn hàng', 'Thời gian giao dịch']
-    const partnerKey = 'Mã đơn hàng';
-    const partnerPrice = 'Số tiền đơn hàng';
-    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
-
-    const afcSelectedCol = ['id', 'totalAmount', 'date_created']
-    const afcKey = 'id';
-    const afcPrice = 'totalAmount';
-    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
-
-    return this.recociliation(
-      this.filterByDateRange(partner, 2, 'Thời gian giao dịch', dateRange, 'partnerFile'),
-      this.filterByDateRange(afc, 2, 'date_created', dateRange, 'afcFile'),
-      'O',
-    );
-  }
-
   private async recociliation(
     partnerData: DataSet,
     afcData: DataSet,
@@ -937,7 +727,7 @@ export class ReconciliationService {
     selectedColumns: string[],
     keyColumn: string,
     priceColumn: string,
-    transactionTypeColumn?: string,
+    dateColumn: string,
     refundStatusColumn?: string,
   ): Promise<DataSet> {
     if (!file.originalname.toLowerCase().endsWith('.xlsx')) {
@@ -967,7 +757,6 @@ export class ReconciliationService {
         let selectedColumnIndexes: number[] = [];
         let keyColumnIndex = 0;
         let priceColumnIndex = 0;
-        let transactionTypeColumnIndex: number | undefined;
         let refundStatusColumnIndex: number | undefined;
         let fullHeaderCount = 0;
 
@@ -1004,9 +793,6 @@ export class ReconciliationService {
             selectedColumnIndexes = selectedColumns.map(findColumn);
             keyColumnIndex = findColumn(keyColumn);
             priceColumnIndex = findColumn(priceColumn);
-            transactionTypeColumnIndex = transactionTypeColumn
-              ? findColumn(transactionTypeColumn)
-              : undefined;
             refundStatusColumnIndex = refundStatusColumn
               ? findColumn(refundStatusColumn)
               : undefined;
@@ -1025,7 +811,6 @@ export class ReconciliationService {
             keyColumnIndex,
             priceColumnIndex,
             selectedColumnIndexes,
-            transactionTypeColumnIndex,
             fullHeaderCount,
           );
           const isRefund =
@@ -1045,6 +830,7 @@ export class ReconciliationService {
           fullHeaders,
           rows,
           refundRows,
+          dateColumn,
         };
       }
     } catch (error) {
@@ -1068,6 +854,7 @@ export class ReconciliationService {
       fullHeaders,
       rows,
       refundRows,
+      dateColumn,
     };
   }
 
@@ -1080,7 +867,6 @@ export class ReconciliationService {
     keyColumn: number,
     priceColumn: number,
     selectedColumnIndexes: number[],
-    transactionTypeColumn?: number,
     fullHeaderCount = 0,
   ): DataRow {
     const keyCell = row.getCell(keyColumn);
@@ -1091,9 +877,6 @@ export class ReconciliationService {
       key: displayKey.toLocaleLowerCase('vi-VN'),
       displayKey,
       price: this.parseAmount(priceCell.value, priceCell.text),
-      transactionType: transactionTypeColumn
-        ? row.getCell(transactionTypeColumn).text
-        : undefined,
       values: selectedColumnIndexes.map(
         (columnIndex) => row.getCell(columnIndex).value,
       ),

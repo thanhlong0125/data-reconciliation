@@ -233,6 +233,19 @@
       gap: 16px;
     }
 
+    .column-header-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .column-stack {
+      display: grid;
+      align-content: start;
+      gap: 16px;
+    }
+
     .field { min-width: 0; }
 
     label.field-label {
@@ -374,6 +387,8 @@
 
       .field-grid { grid-template-columns: 1fr; }
 
+      .column-header-grid { grid-template-columns: 1fr; }
+
       .actions {
         align-items: stretch;
         flex-direction: column;
@@ -479,6 +494,44 @@
           <p class="hint">Lọc theo ngày, bao gồm cả hai đầu mút. Dữ liệu ngày trong file được xử lý theo UTC+0.</p>
         </div>
 
+        <div class="column-header-grid">
+          <div class="column-stack">
+            <div class="field">
+              <label class="field-label" for="partnerKey">Cột mã giao dịch partner <span class="required" aria-hidden="true">*</span></label>
+              <input id="partnerKey" name="partnerKey" type="text" required>
+            </div>
+            <div class="field">
+              <label class="field-label" for="partnerTime">Cột thời gian partner <span class="required" aria-hidden="true">*</span></label>
+              <input id="partnerTime" name="partnerTime" type="text" required>
+            </div>
+            <div class="field">
+              <label class="field-label" for="afcPrice">Cột số tiền AFC <span class="required" aria-hidden="true">*</span></label>
+              <input id="afcPrice" name="afcPrice" type="text" required>
+            </div>
+            <div class="field">
+              <label class="field-label" for="keyRefund">Cột trạng thái hoàn tiền partner</label>
+              <input id="keyRefund" name="keyRefund" type="text" aria-describedby="keyRefundHint">
+              <p class="hint" id="keyRefundHint">Không bắt buộc. Để trống nếu không cần tách giao dịch hoàn tiền.</p>
+            </div>
+          </div>
+
+          <div class="column-stack">
+            <div class="field">
+              <label class="field-label" for="partnerPrice">Cột số tiền partner <span class="required" aria-hidden="true">*</span></label>
+              <input id="partnerPrice" name="partnerPrice" type="text" required>
+            </div>
+            <div class="field">
+              <label class="field-label" for="afcKey">Cột mã giao dịch AFC <span class="required" aria-hidden="true">*</span></label>
+              <input id="afcKey" name="afcKey" type="text" required>
+            </div>
+            <div class="field">
+              <label class="field-label" for="afcTime">Cột thời gian AFC <span class="required" aria-hidden="true">*</span></label>
+              <input id="afcTime" name="afcTime" type="text" required>
+            </div>
+          </div>
+        </div>
+        <p class="hint">Nhập chính xác tên header trong từng file Excel.</p>
+
         <div id="errorBox" class="error-box" role="alert" aria-live="polite"></div>
 
         <div class="actions">
@@ -502,6 +555,14 @@
       const afcFile = document.getElementById('afcFile');
       const fromDate = document.getElementById('fromDate');
       const toDate = document.getElementById('toDate');
+      const requiredColumnInputs = [
+        document.getElementById('partnerKey'),
+        document.getElementById('partnerPrice'),
+        document.getElementById('partnerTime'),
+        document.getElementById('afcKey'),
+        document.getElementById('afcPrice'),
+        document.getElementById('afcTime'),
+      ];
       const MAX_SIZE = 20 * 1024 * 1024;
 
       function showError(message) {
@@ -574,6 +635,9 @@
       [fromDate, toDate].forEach((input) => {
         input.addEventListener('change', clearError);
       });
+      requiredColumnInputs.forEach((input) => {
+        input.addEventListener('input', clearError);
+      });
 
       endpoint.addEventListener('input', () => {
         const value = endpoint.value.trim();
@@ -617,6 +681,16 @@
           event.preventDefault();
           showError('Từ ngày không được sau ngày kết thúc.');
           fromDate.focus();
+          return;
+        }
+
+        const emptyColumnInput = requiredColumnInputs.find(
+          (input) => !input.value.trim(),
+        );
+        if (emptyColumnInput) {
+          event.preventDefault();
+          showError('Vui lòng nhập đủ tên cột key, giá và thời gian của partner và AFC.');
+          emptyColumnInput.focus();
           return;
         }
 
