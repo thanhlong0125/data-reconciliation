@@ -55,6 +55,10 @@ const ENGLISH_MONTH_NUMBERS: Record<string, string> = {
   dec: '12',
   december: '12',
 };
+interface CutKeyConfig {
+  key: string;
+  index: number;
+}
 
 interface DataRow {
   rowNumber: number;
@@ -70,17 +74,7 @@ interface DataSet {
   headers: string[];
   fullHeaders: string[];
   rows: DataRow[];
-}
-
-interface RefundData {
-  refunds: DataSet;
-  remaining: DataSet;
-}
-
-interface WrongPriceRow {
-  afcRow: DataRow;
-  partnerRow: DataRow;
-  priceDifference: number;
+  refundRows: DataRow[];
 }
 
 export interface DateRange {
@@ -205,6 +199,8 @@ export class ReconciliationService {
       throw new BadRequestException('Vui lòng chọn khoảng ngày đối soát.');
     }
     switch (selectedCode.code) {
+      case 0:
+        return this.appMomoMiniApp(afcFile, partnerFile, dateRange);
       case 1:
         return this.appMPGS(afcFile, partnerFile, dateRange);
       case 2:
@@ -237,6 +233,7 @@ export class ReconciliationService {
         );
     }
   }
+
   private filterByDateRange(
     data: DataSet,
     dateColumnIndex: number,
@@ -445,26 +442,13 @@ export class ReconciliationService {
       : moment(timestamp).tz(FILE_TIMEZONE).format(CALENDAR_DATE_FORMAT);
   }
 
-  private indexByKey(
-    mainData: DataRow[],
-    secondary: DataRow[],
-  ): { rowsByKey: Map<string, number> } {
-    const secondaryCounts = new Map<string, number>();
-    for (const row of secondary) {
-      secondaryCounts.set(row.key, (secondaryCounts.get(row.key) ?? 0) + 1);
-    }
-
-    const rowsByKey = new Map<string, number>();
-    for (const row of mainData) {
-      if (!rowsByKey.has(row.key)) {
-        rowsByKey.set(row.key, secondaryCounts.get(row.key) ?? 0);
-      }
-    }
-
-    return { rowsByKey };
+  private async refund(){
+    
   }
+
 //========================================APP========================================
-  private async appMomo(
+
+  private async appMomoMiniApp(
     afcFile: UploadedExcelFile,
     partnerFile: UploadedExcelFile,
     dateRange: DateRange
@@ -473,6 +457,26 @@ export class ReconciliationService {
     const partnerKey = 'Mã đơn hàng gốc';
     const partnerPrice = 'Số tiền';
     const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
+
+    const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
+    const afcKey = 'Mã đối soát';
+    const afcPrice = 'Giá bán';
+    const afc = await this.readRows(afcFile, 'afcFile', afcSelectedCol, afcKey, afcPrice);
+
+    return this.recociliation(
+      this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
+      this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
+    );
+  }
+  private async appMomo(
+    afcFile: UploadedExcelFile,
+    partnerFile: UploadedExcelFile,
+    dateRange: DateRange
+  ) {
+    const partnerSelectedCol = ['Bill_ID', 'Total_Amount', 'Date']
+    const partnerKey = 'Bill_ID';
+    const partnerPrice = 'Total_Amount';
+    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice,'Status');
 
     const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
     const afcKey = 'Mã đối soát';
@@ -509,9 +513,9 @@ export class ReconciliationService {
     partnerFile: UploadedExcelFile,
     dateRange: DateRange
   ) {
-    const partnerSelectedCol = ['Mã đơn hàng gốc', 'Số tiền', 'Thời gian']
-    const partnerKey = 'Mã đơn hàng gốc';
-    const partnerPrice = 'Số tiền';
+    const partnerSelectedCol = ['Nội dung', 'Số tiền gửi', 'Ngày hiệu lực']
+    const partnerKey = 'Nội dung';
+    const partnerPrice = 'Số tiền gửi';
     const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
 
     const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
@@ -525,7 +529,7 @@ export class ReconciliationService {
       undefined,
       undefined,
       undefined,
-      true,
+      { key: '[PCA HCMC Metro HURC]', index: 1 },
     );
   }
   private async appZalopay(
@@ -536,7 +540,7 @@ export class ReconciliationService {
     const partnerSelectedCol = ['Payment Request ID', 'Số tiền thanh toán trước phí', 'Ngày giao dịch']
     const partnerKey = 'Payment Request ID';
     const partnerPrice = 'Số tiền thanh toán trước phí';
-    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
+    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice,'Loại GD');
 
     const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
     const afcKey = 'Mã đối soát';
@@ -546,10 +550,6 @@ export class ReconciliationService {
     return this.recociliation(
       this.filterByDateRange(partner, 2, 'Thời gian', dateRange, 'partnerFile'),
       this.filterByDateRange(afc, 2, 'Ngày mua vé', dateRange, 'afcFile'),
-      undefined,
-      undefined,
-      true,
-      true,
     );
   }
   private async appShopeePay(
@@ -560,7 +560,7 @@ export class ReconciliationService {
     const partnerSelectedCol = ['Mã đơn hàng gốc', 'Số tiền', 'Thời gian']
     const partnerKey = 'Mã đơn hàng gốc';
     const partnerPrice = 'Số tiền';
-    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice);
+    const partner = await this.readRows(partnerFile, 'partnerFile', partnerSelectedCol, partnerKey, partnerPrice,'Loại giao dịch');
 
     const afcSelectedCol = ['Mã đối soát', 'Giá bán', 'Ngày mua vé']
     const afcKey = 'Mã đối soát';
@@ -749,8 +749,8 @@ export class ReconciliationService {
     afcData: DataSet,
     addKeyAFC?: string,
     addKeyPartner?: string,
-    cutKeyAFC = false,
-    cutKeyPartner = false,
+    cutKeyAFC ?: CutKeyConfig,
+    cutKeyPartner?: CutKeyConfig,
   ): Promise<Buffer> {
 
     const partnerRowsByMatch = this.findUnmatchedRows(
@@ -826,6 +826,39 @@ export class ReconciliationService {
       doiTacNhieuHonAfc.addRow(row.fullValues);
     }
 
+    const refundEntries = [
+      ...partnerData.refundRows.map((row) => ({
+        source: 'partnerFile',
+        headers: partnerData.fullHeaders,
+        row,
+      })),
+      ...afcData.refundRows.map((row) => ({
+        source: 'afcFile',
+        headers: afcData.fullHeaders,
+        row,
+      })),
+    ];
+    if (refundEntries.length > 0) {
+      const refundHeaders = Array.from(
+        new Set(refundEntries.flatMap((entry) => entry.headers)),
+      );
+      const hoanTien = result.addWorksheet('Hoàn tiền');
+      hoanTien.addRow(['Nguồn', ...refundHeaders]);
+
+      for (const entry of refundEntries) {
+        const valuesByHeader = new Map(
+          entry.headers.map((header, index) => [
+            header,
+            entry.row.fullValues[index],
+          ]),
+        );
+        hoanTien.addRow([
+          entry.source,
+          ...refundHeaders.map((header) => valuesByHeader.get(header)),
+        ]);
+      }
+    }
+
     return Buffer.from(await result.xlsx.writeBuffer());
   }
 
@@ -834,20 +867,25 @@ export class ReconciliationService {
     counterpartRows: DataRow[],
     sourceAddKey?: string,
     counterpartAddKey?: string,
-    sourceCutKeyAtSpace = false,
-    counterpartCutKeyAtSpace = false,
+    sourceCutKeyAtSpace?: CutKeyConfig,
+    counterpartCutKeyAtSpace?: CutKeyConfig,
   ): {
     unmatchedRows: DataRow[];
     extraRows: DataRow[];
   } {
     const addPrefix = (key: string, prefix?: string): string => {
-      const normalizedPrefix = prefix?.toLocaleLowerCase('vi-VN');
-      return normalizedPrefix && !key.startsWith(normalizedPrefix)
-        ? `${normalizedPrefix}${key}`
-        : key;
+      const normalizedPrefix = prefix?.toLocaleLowerCase('vi-VN')
+      if (!normalizedPrefix || key.startsWith(normalizedPrefix)) {
+        return key;
+      }
+      return `${normalizedPrefix}${key}`;
     };
-    const normalizeKey = (key: string, cutAtSpace: boolean): string =>
-      cutAtSpace ? key.trim().split(/\s+/, 1)[0] : key;
+    const normalizeKey = (key: string, config?: CutKeyConfig): string => {
+      if (!config) {
+        return key.trim();
+      }
+      return key.split(config.key)[config.index]?.trim() ?? '';
+    };
 
     const counterpartCountsByKey = new Map<string, number>();
     for (const row of counterpartRows) {
@@ -862,6 +900,7 @@ export class ReconciliationService {
         key,
         (counterpartCountsByKey.get(key) ?? 0) + 1,
       );
+
     }
 
     const sourceOccurrencesByKey = new Map<string, number>();
@@ -899,12 +938,14 @@ export class ReconciliationService {
     keyColumn: string,
     priceColumn: string,
     transactionTypeColumn?: string,
+    refundStatusColumn?: string,
   ): Promise<DataSet> {
     if (!file.originalname.toLowerCase().endsWith('.xlsx')) {
       throw new BadRequestException(`${fileLabel} phải là file Excel .xlsx.`);
     }
 
     const rows: DataRow[] = [];
+    const refundRows: DataRow[] = [];
     let firstSheetFound = false;
     let headersFound = false;
     let fullHeaders: string[] = [];
@@ -927,6 +968,7 @@ export class ReconciliationService {
         let keyColumnIndex = 0;
         let priceColumnIndex = 0;
         let transactionTypeColumnIndex: number | undefined;
+        let refundStatusColumnIndex: number | undefined;
         let fullHeaderCount = 0;
 
         for await (const row of worksheet) {
@@ -965,6 +1007,9 @@ export class ReconciliationService {
             transactionTypeColumnIndex = transactionTypeColumn
               ? findColumn(transactionTypeColumn)
               : undefined;
+            refundStatusColumnIndex = refundStatusColumn
+              ? findColumn(refundStatusColumn)
+              : undefined;
             headersFound = true;
             continue;
           }
@@ -975,22 +1020,31 @@ export class ReconciliationService {
           if (!row.hasValues) {
             continue;
           }
-          rows.push(
-            this.toDataRow(
-              row,
-              keyColumnIndex,
-              priceColumnIndex,
-              selectedColumnIndexes,
-              transactionTypeColumnIndex,
-              fullHeaderCount,
-            ),
+          const dataRow = this.toDataRow(
+            row,
+            keyColumnIndex,
+            priceColumnIndex,
+            selectedColumnIndexes,
+            transactionTypeColumnIndex,
+            fullHeaderCount,
           );
+          const isRefund =
+            refundStatusColumnIndex !== undefined &&
+            ['hoàn tiền', 'hoàn trả', '0'].includes(
+              row
+                .getCell(refundStatusColumnIndex)
+                .text.trim()
+                .toLocaleLowerCase('vi-VN'),
+            );
+
+          (isRefund ? refundRows : rows).push(dataRow);
         }
 
         return {
           headers: [...selectedColumns],
           fullHeaders,
           rows,
+          refundRows,
         };
       }
     } catch (error) {
@@ -1013,6 +1067,7 @@ export class ReconciliationService {
       headers: [...selectedColumns],
       fullHeaders,
       rows,
+      refundRows,
     };
   }
 
