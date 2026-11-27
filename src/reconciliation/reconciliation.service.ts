@@ -498,7 +498,6 @@ export class ReconciliationService {
       afcFile,
       'afcFile',
       afcColumns,
-      keyRefund,
     );
     const partnerRows = options.ignoreFailedPartnerTransactions
       ? {
