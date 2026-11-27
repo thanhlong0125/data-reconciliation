@@ -21,10 +21,7 @@ import { parsePagination } from '../common/pagination';
 import { MongoLogService } from '../db/mongo-log.service';
 import { B2StorageService } from './B2Storage.service';
 import { ReconciliationService } from './reconciliation.service';
-import type {
-  DateRange,
-  ReconciliationColumns,
-} from './reconciliation.service';
+import type { DateRange } from './reconciliation.service';
 import { UploadedExcelFile } from '../public/uploaded-excel-file.type';
 
 function isValidDate(value: string): boolean {
@@ -53,8 +50,18 @@ export class ReconciliationController {
   ) { }
 
   @Get('codes')
-  getCodes(): { code: number; name: string }[] {
+  getCodes(): Promise<Array<{ code: number; name: string }>> {
     return this.reconciliationService.getCodes();
+  }
+
+  @Get('codes/:code')
+  getCodeConfig(@Param('code') codeValue: string) {
+    const code = Number(codeValue);
+    if (!Number.isInteger(code)) {
+      throw new BadRequestException('Mã code không hợp lệ.');
+    }
+
+    return this.reconciliationService.getCodeConfig(code);
   }
 
   @Post('upload')
@@ -153,13 +160,6 @@ export class ReconciliationController {
       code?: string;
       fromDate?: string;
       toDate?: string;
-      partnerKey?: string;
-      partnerPrice?: string;
-      partnerTime?: string;
-      afcKey?: string;
-      afcPrice?: string;
-      afcTime?: string;
-      keyRefund?: string;
     },
     @Res() response: Response,
     @Req() request: Request,
@@ -191,38 +191,11 @@ export class ReconciliationController {
     }
     const dateRange: DateRange = { fromDate, toDate };
 
-    const partner: ReconciliationColumns = {
-      key: body?.partnerKey?.trim() ?? '',
-      price: body?.partnerPrice?.trim() ?? '',
-      time: body?.partnerTime?.trim() ?? '',
-    };
-    const afc: ReconciliationColumns = {
-      key: body?.afcKey?.trim() ?? '',
-      price: body?.afcPrice?.trim() ?? '',
-      time: body?.afcTime?.trim() ?? '',
-    };
-    const keyRefund = body?.keyRefund?.trim() ?? '';
-    if (
-      !partner.key ||
-      !partner.price ||
-      !partner.time ||
-      !afc.key ||
-      !afc.price ||
-      !afc.time
-    ) {
-      throw new BadRequestException(
-        'Vui lòng nhập đủ tên cột key, giá và thời gian của partner và AFC.',
-      );
-    }
-
     const output = await this.reconciliationService.checkCodeAndHandle(
       afcFile,
       partnerFile,
       code,
       dateRange,
-      partner,
-      afc,
-      keyRefund || undefined,
     );
     await this.mongoLogService.recordUserAction(
       request.ip,

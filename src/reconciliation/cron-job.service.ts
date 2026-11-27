@@ -75,15 +75,18 @@ export class CronJobService implements OnModuleInit, OnModuleDestroy {
       const toDate = process.env.RECONCILIATION_TO_DATE?.trim() ?? '';
       if (
         !Number.isInteger(code) ||
-        !this.reconciliationService
-          .getCodes()
-          .some((availableCode) => availableCode.code === code) ||
         !this.isValidDate(fromDate) ||
         !this.isValidDate(toDate) ||
         fromDate > toDate
       ) {
         throw new Error(
           'Cấu hình RECONCILIATION_CODE, RECONCILIATION_FROM_DATE hoặc RECONCILIATION_TO_DATE không hợp lệ.',
+        );
+      }
+      const availableCodes = await this.reconciliationService.getCodes();
+      if (!availableCodes.some((availableCode) => availableCode.code === code)) {
+        throw new Error(
+          'RECONCILIATION_CODE không có trong cấu hình đối soát MongoDB.',
         );
       }
 

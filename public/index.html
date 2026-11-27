@@ -549,28 +549,28 @@
               <label class="field-label" for="partnerKey">
                 Cột mã giao dịch partner <span class="required" aria-hidden="true">*</span>
               </label>
-              <input id="partnerKey" name="partnerKey" type="text" required>
+              <input id="partnerKey" name="partnerKey" type="text" required disabled>
             </div>
 
             <div class="field">
               <label class="field-label" for="partnerTime">
                 Cột thời gian partner <span class="required" aria-hidden="true">*</span>
               </label>
-              <input id="partnerTime" name="partnerTime" type="text" required>
+              <input id="partnerTime" name="partnerTime" type="text" required disabled>
             </div>
 
             <div class="field">
               <label class="field-label" for="partnerPrice">
                 Cột số tiền partner <span class="required" aria-hidden="true">*</span>
               </label>
-              <input id="partnerPrice" name="partnerPrice" type="text" required>
+              <input id="partnerPrice" name="partnerPrice" type="text" required disabled>
             </div>
 
             <div class="field">
               <label class="field-label" for="keyRefund">
                 Cột trạng thái hoàn tiền partner
               </label>
-              <input id="keyRefund" name="keyRefund" type="text" aria-describedby="keyRefundHint">
+              <input id="keyRefund" name="keyRefund" type="text" aria-describedby="keyRefundHint" disabled>
               <p class="hint" id="keyRefundHint">
                 Không bắt buộc. Để trống nếu không cần tách giao dịch hoàn tiền.
               </p>
@@ -583,25 +583,25 @@
               <label class="field-label" for="afcKey">
                 Cột mã giao dịch AFC <span class="required" aria-hidden="true">*</span>
               </label>
-              <input id="afcKey" name="afcKey" type="text" required>
+              <input id="afcKey" name="afcKey" type="text" required disabled>
             </div>
 
             <div class="field">
               <label class="field-label" for="afcTime">
                 Cột thời gian AFC <span class="required" aria-hidden="true">*</span>
               </label>
-              <input id="afcTime" name="afcTime" type="text" required>
+              <input id="afcTime" name="afcTime" type="text" required disabled>
             </div>
 
             <div class="field">
               <label class="field-label" for="afcPrice">
                 Cột số tiền AFC <span class="required" aria-hidden="true">*</span>
               </label>
-              <input id="afcPrice" name="afcPrice" type="text" required>
+              <input id="afcPrice" name="afcPrice" type="text" required disabled>
             </div>
           </div>
         </div>
-        <p class="hint">Nhập chính xác tên header trong từng file Excel.</p>
+        <p class="hint">Tên header được nạp tự động theo kênh đã chọn và không thể chỉnh sửa tại đây.</p>
 
 
         <div class="actions">
@@ -626,14 +626,16 @@
       const afcFile = document.getElementById('afcFile');
       const fromDate = document.getElementById('fromDate');
       const toDate = document.getElementById('toDate');
-      const requiredColumnInputs = [
-        document.getElementById('partnerKey'),
-        document.getElementById('partnerPrice'),
-        document.getElementById('partnerTime'),
-        document.getElementById('afcKey'),
-        document.getElementById('afcPrice'),
-        document.getElementById('afcTime'),
-      ];
+      const columnInputs = {
+        partnerKey: document.getElementById('partnerKey'),
+        partnerPrice: document.getElementById('partnerPrice'),
+        partnerTime: document.getElementById('partnerTime'),
+        partnerRefund: document.getElementById('keyRefund'),
+        afcKey: document.getElementById('afcKey'),
+        afcPrice: document.getElementById('afcPrice'),
+        afcTime: document.getElementById('afcTime'),
+      };
+      let selectedConfigLoaded = false;
       const MAX_SIZE = 20 * 1024 * 1024;
 
       function showError(message) {
@@ -682,6 +684,71 @@
       }
 
       void loadCodes();
+
+      code.addEventListener('change', async () => {
+        clearError();
+        selectedConfigLoaded = false;
+        Object.values(columnInputs).forEach((input) => {
+          input.value = '';
+        });
+        if (!code.value) return;
+
+        code.disabled = true;
+        submitButton.disabled = true;
+        try {
+          const response = await fetch(
+            `/reconciliation/codes/${encodeURIComponent(code.value)}`,
+          );
+          if (!response.ok) {
+            throw new Error(`Request failed with status ${response.status}`);
+          }
+
+          const config = await response.json();
+          if (
+            !config ||
+            !config.partner ||
+            !config.afc ||
+            typeof config.partner.key !== 'string' ||
+            typeof config.partner.price !== 'string' ||
+            typeof config.partner.time !== 'string' ||
+            typeof config.partner.refund !== 'string' ||
+            typeof config.afc.key !== 'string' ||
+            typeof config.afc.price !== 'string' ||
+            typeof config.afc.time !== 'string'
+          ) {
+            throw new Error('Invalid reconciliation config response');
+          }
+
+          columnInputs.partnerKey.value = config.partner.key;
+          columnInputs.partnerPrice.value = config.partner.price;
+          columnInputs.partnerTime.value = config.partner.time;
+          columnInputs.partnerRefund.value = config.partner.refund;
+          columnInputs.afcKey.value = config.afc.key;
+          columnInputs.afcPrice.value = config.afc.price;
+          columnInputs.afcTime.value = config.afc.time;
+          selectedConfigLoaded = true;
+
+          const requiredConfigValues = [
+            config.partner.key,
+            config.partner.price,
+            config.partner.time,
+            config.afc.key,
+            config.afc.price,
+            config.afc.time,
+          ];
+          if (requiredConfigValues.some((value) => !value.trim())) {
+            showError(
+              'Cấu hình cột cho kênh này chưa đầy đủ. Vui lòng liên hệ quản trị viên.',
+            );
+          }
+        } catch (error) {
+          console.error('Failed to load reconciliation config:', error);
+          showError('Không thể tải cấu hình cột của kênh đã chọn.');
+        } finally {
+          code.disabled = false;
+          submitButton.disabled = false;
+        }
+      });
 
       function validateFile(input, label) {
         if (!input.files || input.files.length !== 1) {
@@ -734,7 +801,6 @@
         code,
         fromDate,
         toDate,
-        ...requiredColumnInputs,
       ];
 
       allValidatedInputs.forEach((input) => {
@@ -785,9 +851,20 @@
           validate(toDate, 'Đến ngày phải lớn hơn hoặc bằng từ ngày.');
         }
 
-        requiredColumnInputs.forEach((input) => {
-          validate(input, input.value.trim() ? '' : 'Vui lòng nhập tên cột này.');
-        });
+        if (code.value && !selectedConfigLoaded) {
+          validate(code, 'Vui lòng chờ cấu hình kênh được tải.');
+        } else if (
+          code.value &&
+          Object.values(columnInputs).some(
+            (input) =>
+              input !== columnInputs.partnerRefund && !input.value.trim(),
+          )
+        ) {
+          validate(
+            code,
+            'Cấu hình cột cho kênh này chưa đầy đủ. Vui lòng liên hệ quản trị viên.',
+          );
+        }
 
         if (firstInvalidInput) {
           firstInvalidInput.focus();

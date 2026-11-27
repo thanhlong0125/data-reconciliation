@@ -14,8 +14,17 @@ import type {
   PaginatedResult,
   PaginationOptions,
 } from '../common/pagination';
+import type { ReconciliationConfigDocument } from './models/reconciliation-config.model';
+import type { SystemLogDocument } from './models/system-log.model';
+import type { UserLogDocument } from './models/user-log.model';
+import type {
+  NewUploadedFileDocument,
+  UploadedFileDocument,
+} from './models/uploaded-file.model';
+import { RECONCILIATION_CONFIG_SEED } from './seeds/reconciliation-config.seed';
 
 type LogDetails = Document;
+type LogDocument = UserLogDocument | SystemLogDocument;
 
 const LOG_RETENTION_SECONDS = 10 * 24 * 60 * 60;
 
@@ -42,18 +51,34 @@ export class MongoLogService implements OnModuleInit, OnModuleDestroy {
       this.database = database;
       await Promise.all([
         database
-          .collection('user_logs')
+          .collection<UserLogDocument>('user_logs')
           .createIndex(
             { createdAt: 1 },
             { expireAfterSeconds: LOG_RETENTION_SECONDS },
           ),
         database
-          .collection('system_logs')
+          .collection<SystemLogDocument>('system_logs')
           .createIndex(
             { createdAt: 1 },
             { expireAfterSeconds: LOG_RETENTION_SECONDS },
           ),
+        database
+          .collection<ReconciliationConfigDocument>('reconciliation_configs')
+          .createIndex({ code: 1 }, { unique: true }),
       ]);
+      // const reconciliationConfigs =
+      //   database.collection<ReconciliationConfigDocument>(
+      //     'reconciliation_configs',
+      //   );
+      // await Promise.all(
+      //   RECONCILIATION_CONFIG_SEED.map((config) =>
+      //     reconciliationConfigs.updateOne(
+      //       { code: config.code },
+      //       { $setOnInsert: config },
+      //       { upsert: true },
+      //     ),
+      //   ),
+      // );
       this.logger.log('Đã kết nối MongoDB và bật lưu log.');
     } catch (error) {
       await client.close();
@@ -77,14 +102,15 @@ export class MongoLogService implements OnModuleInit, OnModuleDestroy {
   async getUploadedFiles(
     userKey: string | undefined,
     pagination: PaginationOptions,
-  ): Promise<PaginatedResult<Document>> {
+  ): Promise<PaginatedResult<UploadedFileDocument>> {
     if (!this.database) {
       throw new InternalServerErrorException(
         'MongoDB chưa kết nối; không thể lấy danh sách file đã upload.',
       );
     }
 
-    const collection = this.database.collection('uploaded_files');
+    const collection =
+      this.database.collection<UploadedFileDocument>('uploaded_files');
     const filter = { userKey: userKey || 'unknown' };
     const [files, total] = await Promise.all([
       collection
@@ -97,6 +123,33 @@ export class MongoLogService implements OnModuleInit, OnModuleDestroy {
     ]);
 
     return createPaginatedResult(files, total, pagination);
+  }
+
+  async getReconciliationConfigs(): Promise<
+    Array<Pick<ReconciliationConfigDocument, 'code' | 'name'>>
+  > {
+    const collection = this.getReconciliationConfigCollection();
+    const configs = await collection
+      .find({ active: true }, { projection: { _id: 0, code: 1, name: 1 } })
+      .sort({ code: 1 })
+      .toArray();
+    return configs.map(({ code, name }) => ({ code, name }));
+  }
+
+  async getReconciliationConfig(
+    code: number,
+  ): Promise<ReconciliationConfigDocument> {
+    const config = await this.getReconciliationConfigCollection().findOne(
+      { code },
+      { projection: { _id: 0 } },
+    );
+    if (!config) {
+      throw new NotFoundException(
+        `Không tìm thấy cấu hình đối soát cho mã ${code}.`,
+      );
+    }
+
+    return config;
   }
 
   async recordUserAction(
@@ -123,26 +176,21 @@ export class MongoLogService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async recordUploadedFile(record: {
-    name: string;
-    links: string[];
-    status: string;
-    key: string;
-    userKey: string | undefined;
-    size: number;
-    contentType: string;
-  }): Promise<string> {
+  async recordUploadedFile(record: NewUploadedFileDocument): Promise<string> {
     if (!this.database) {
       throw new Error(
         'MongoDB chưa kết nối; không thể lưu thông tin file đã upload.',
       );
     }
 
-    const result = await this.database.collection('uploaded_files').insertOne({
+    const uploadedFile: UploadedFileDocument = {
       ...record,
       userKey: record.userKey || 'unknown',
       uploadedAt: new Date(),
-    });
+    };
+    const result = await this.database
+      .collection<UploadedFileDocument>('uploaded_files')
+      .insertOne(uploadedFile);
     return result.insertedId.toString();
   }
 
@@ -161,7 +209,7 @@ export class MongoLogService implements OnModuleInit, OnModuleDestroy {
     }
 
     const file = await this.database
-      .collection('uploaded_files')
+      .collection<UploadedFileDocument>('uploaded_files')
       .findOne({ _id: new ObjectId(id) });
     if (!file) {
       throw new NotFoundException('Không tìm thấy file đã upload.');
@@ -185,18 +233,32 @@ export class MongoLogService implements OnModuleInit, OnModuleDestroy {
 
   private async insertLog(
     collectionName: 'user_logs' | 'system_logs',
-    log: LogDetails,
+    log: LogDocument,
   ): Promise<void> {
     if (!this.database) {
       return;
     }
 
     try {
-      await this.database.collection(collectionName).insertOne(log);
+      await this.database
+        .collection<LogDocument>(collectionName)
+        .insertOne(log);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Lỗi không xác định.';
       this.logger.error(`Không ghi được ${collectionName}: ${message}`);
     }
+  }
+
+  private getReconciliationConfigCollection() {
+    if (!this.database) {
+      throw new InternalServerErrorException(
+        'MongoDB chưa kết nối; không thể lấy cấu hình đối soát.',
+      );
+    }
+
+    return this.database.collection<ReconciliationConfigDocument>(
+      'reconciliation_configs',
+    );
   }
 }

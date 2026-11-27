@@ -6,6 +6,10 @@ import ExcelJS from 'exceljs';
 import moment from 'moment-timezone';
 import { Readable } from 'node:stream';
 import { MongoLogService } from '../db/mongo-log.service';
+import type {
+  CutKeyConfig,
+  ReconciliationConfigDocument,
+} from '../db/models/reconciliation-config.model';
 import { UploadedExcelFile } from '../public/uploaded-excel-file.type';
 import { B2StorageService } from './B2Storage.service';
 
@@ -19,22 +23,6 @@ export interface ReconciliationColumns {
 
 const FILE_TIMEZONE = 'Asia/Ho_Chi_Minh';
 const CALENDAR_DATE_FORMAT = 'YYYY-MM-DD';
-
-const CODE = [
-  { code: 1, name: 'App - Thẻ quốc thế (MPGS)'},
-  { code: 2, name: 'App - TKTT Sacombank' },
-  { code: 3, name: 'App - Momo' },
-  { code: 4, name: 'App - Zalopay' },
-  { code: 5, name: 'App - ShopeePay' },
-  // { code: 6, name: 'Tap&go - ZaloPay' },
-  // { code: 7, name: 'Tap&go - Momo' },
-  // { code: 8, name: 'Tap&go - ShopeePay' },
-  { code: 9, name: 'Kiosk - TTT' },
-  { code: 10, name: 'Kiosk - ZaloPay' },
-  { code: 11, name: 'Kiosk - ShopeePay' },
-  { code: 12, name: 'Kiosk - Momo' },
-  { code: 13, name: 'Kiosk - Techcombank' },
-]
 
 const ENGLISH_MONTH_NUMBERS: Record<string, string> = {
   jan: '01',
@@ -61,29 +49,6 @@ const ENGLISH_MONTH_NUMBERS: Record<string, string> = {
   dec: '12',
   december: '12',
 };
-interface CutKeyConfig {
-  key: string;
-  index: number;
-}
-
-interface ReconciliationOptions {
-  addKeyAFC?: string;
-  addKeyPartner?: string;
-  cutKeyAFC?: CutKeyConfig;
-  cutKeyPartner?: CutKeyConfig;
-  ignoreFailedPartnerTransactions?: boolean;
-}
-
-const RECONCILIATION_OPTIONS: Partial<
-  Record<number, ReconciliationOptions>
-> = {
-  2: { cutKeyPartner: { key: '[PCA HCMC Metro HURC]', index: 1 } },
-  10: { ignoreFailedPartnerTransactions: true },
-  11: { addKeyAFC: 'O' },
-  12: { addKeyPartner: 'O' },
-  13: { addKeyAFC: 'O' },
-};
-
 interface DataRow {
   rowNumber: number;
   key: string;
@@ -205,8 +170,14 @@ export class ReconciliationService {
     return this.mongoLogService.getUploadedFile(id);
   }
 
-  getCodes(): { code: number; name: string }[] {
-    return CODE.map(({ code, name }) => ({ code, name }));
+  getCodes(): Promise<
+    Array<Pick<ReconciliationConfigDocument, 'code' | 'name'>>
+  > {
+    return this.mongoLogService.getReconciliationConfigs();
+  }
+
+  getCodeConfig(code: number): Promise<ReconciliationConfigDocument> {
+    return this.mongoLogService.getReconciliationConfig(code);
   }
 
   async checkCodeAndHandle(
@@ -214,30 +185,34 @@ export class ReconciliationService {
     partnerFile: UploadedExcelFile,
     code: number,
     dateRange: DateRange,
-    partnerColumns?: ReconciliationColumns,
-    afcColumns?: ReconciliationColumns,
-    keyRefund?: string,
   ): Promise<Buffer> {
-    const selectedCode = CODE.find(item => item.code === code);
-    if (!selectedCode) {
+    if (!Number.isInteger(code)) {
       throw new BadRequestException(`Mã code ${code} không hợp lệ.`);
     }
     if (!dateRange) {
       throw new BadRequestException('Vui lòng chọn khoảng ngày đối soát.');
     }
-    if (!partnerColumns || !afcColumns) {
+    const config = await this.getCodeConfig(code);
+    if (
+      !config.partner.key.trim() ||
+      !config.partner.price.trim() ||
+      !config.partner.time.trim() ||
+      !config.afc.key.trim() ||
+      !config.afc.price.trim() ||
+      !config.afc.time.trim()
+    ) {
       throw new BadRequestException(
-        'Vui lòng truyền đủ cột đối soát cho partner và AFC.',
+        `Cấu hình cột đối soát cho "${config.name}" chưa đầy đủ.`,
       );
     }
     return this.reconcileFiles(
       afcFile,
       partnerFile,
       dateRange,
-      partnerColumns,
-      afcColumns,
-      keyRefund,
-      selectedCode.code,
+      config.partner,
+      config.afc,
+      config.partner.refund?.trim() || undefined,
+      config.ignoreFailedPartnerTransactions,
     );
   }
 
@@ -474,20 +449,15 @@ export class ReconciliationService {
       : moment(timestamp).tz(FILE_TIMEZONE).format(CALENDAR_DATE_FORMAT);
   }
 
-  private async refund(){
-    
-  }
-
   private async reconcileFiles(
     afcFile: UploadedExcelFile,
     partnerFile: UploadedExcelFile,
     dateRange: DateRange,
-    partnerColumns: ReconciliationColumns,
-    afcColumns: ReconciliationColumns,
+    partnerColumns: ReconciliationConfigDocument['partner'],
+    afcColumns: ReconciliationConfigDocument['afc'],
     keyRefund: string | undefined,
-    code: number,
+    ignoreFailedPartnerTransactions: boolean | undefined,
   ): Promise<Buffer> {
-    const options = RECONCILIATION_OPTIONS[code] ?? {};
     const partner = await this.readReconciliationRows(
       partnerFile,
       'partnerFile',
@@ -499,7 +469,7 @@ export class ReconciliationService {
       'afcFile',
       afcColumns,
     );
-    const partnerRows = options.ignoreFailedPartnerTransactions
+    const partnerRows = ignoreFailedPartnerTransactions
       ? {
           ...partner,
           rows: partner.rows.filter((row) => {
@@ -527,10 +497,10 @@ export class ReconciliationService {
         dateRange,
         'afcFile',
       ),
-      options.addKeyAFC,
-      options.addKeyPartner,
-      options.cutKeyAFC,
-      options.cutKeyPartner,
+      afcColumns.addKey,
+      partnerColumns.addKey,
+      afcColumns.cutKeyPartner,
+      partnerColumns.cutKeyPartner,
     );
   }
   private async recociliation(
